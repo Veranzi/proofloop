@@ -10,6 +10,7 @@ import '../features/cases/case_details_screen.dart';
 import '../features/cases/cases_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/evidence/evidence_upload_screen.dart';
+import '../features/profile/profile_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/review/review_workspace_screen.dart';
 import '../widgets/app_shell.dart';
@@ -88,6 +89,10 @@ final appRouter = GoRouter(
           builder: (context, state) => ReportsScreen(
             initialCaseId: state.uri.queryParameters['case'],
           ),
+        ),
+        GoRoute(
+          path: '/profile',
+          builder: (context, state) => const ProfileScreen(),
         ),
       ],
     ),
