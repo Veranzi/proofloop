@@ -5,6 +5,7 @@ import '../features/auth/forgot_password_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/splash_screen.dart';
+import '../features/auth/verify_email_screen.dart';
 
 /// Routes that can be opened without signing in.
 const _publicRoutes = {
@@ -31,6 +32,12 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/forgot-password',
       builder: (context, state) => const ForgotPasswordScreen(),
+    ),
+    GoRoute(
+      path: '/verify-email',
+      builder: (context, state) => VerifyEmailScreen(
+        email: state.uri.queryParameters['email'] ?? '',
+      ),
     ),
   ],
 );
