@@ -328,9 +328,12 @@ class _EvidencePreview extends StatelessWidget {
               const Icon(Icons.picture_as_pdf_outlined,
                   color: AppColors.danger, size: 20),
               const SizedBox(width: 8),
-              Text(fileName,
-                  style: const TextStyle(fontWeight: FontWeight.w500)),
-              const Spacer(),
+              Expanded(
+                child: Text(fileName,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w500)),
+              ),
+              const SizedBox(width: 8),
               const Text('Page 1 of 3',
                   style:
                       TextStyle(fontSize: 12, color: AppColors.textSecondary)),

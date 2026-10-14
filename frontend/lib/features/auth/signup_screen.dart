@@ -97,8 +97,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   : const Text('Create Account'),
             ),
             const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Text('Already have an account?',
                     style: TextStyle(color: AppColors.textSecondary)),

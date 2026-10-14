@@ -20,12 +20,15 @@ class BrandLogo extends StatelessWidget {
             size: size * 1.3,
             color: light ? const Color(0xFF4F86FF) : AppColors.primary),
         SizedBox(width: size * 0.35),
-        Text(
-          'ProofLoop',
-          style: TextStyle(
-            fontSize: size,
-            fontWeight: FontWeight.w700,
-            color: light ? Colors.white : AppColors.navy,
+        Flexible(
+          child: Text(
+            'ProofLoop',
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: size,
+              fontWeight: FontWeight.w700,
+              color: light ? Colors.white : AppColors.navy,
+            ),
           ),
         ),
       ],

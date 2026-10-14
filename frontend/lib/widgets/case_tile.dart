@@ -20,49 +20,58 @@ class CaseTile extends StatelessWidget {
       CaseStatus.completed => (AppColors.successSoft, AppColors.success),
     };
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => context.go('/cases/${item.id}'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: iconBg,
-                borderRadius: BorderRadius.circular(8),
+    return LayoutBuilder(builder: (context, constraints) {
+      // Narrow rows (phones) put the status chip under the title.
+      final compact = constraints.maxWidth < 440;
+      return InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => context.go('/cases/${item.id}'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.work_outline, size: 18, color: iconFg),
               ),
-              child: Icon(Icons.work_outline, size: 18, color: iconFg),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Case #${item.id}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 13)),
-                  const SizedBox(height: 2),
-                  Text(item.title,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary)),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Case #${item.id}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13)),
+                    const SizedBox(height: 2),
+                    Text(item.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary)),
+                    if (compact) ...[
+                      const SizedBox(height: 6),
+                      StatusChip(item.status),
+                    ],
+                  ],
+                ),
               ),
-            ),
-            StatusChip(item.status),
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 52,
-              child: Text(timeAgo(item.createdAt),
-                  textAlign: TextAlign.end,
+              if (!compact) ...[
+                StatusChip(item.status),
+                const SizedBox(width: 12),
+              ],
+              const SizedBox(width: 8),
+              Text(timeAgo(item.createdAt),
                   style: const TextStyle(
                       fontSize: 12, color: AppColors.textSecondary)),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }

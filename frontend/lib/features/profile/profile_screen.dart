@@ -141,10 +141,13 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
                           fontWeight: FontWeight.w600)),
                 ),
                 const SizedBox(width: 16),
-                TextButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                  label: const Text('Change photo'),
+                Flexible(
+                  child: TextButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                    label: const Text('Change photo',
+                        overflow: TextOverflow.ellipsis),
+                  ),
                 ),
               ],
             ),

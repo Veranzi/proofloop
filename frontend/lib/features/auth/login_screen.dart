@@ -108,8 +108,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   _run(() => AuthService.instance.signInWithProvider(p)),
             ),
             const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Text("Don't have an account?",
                     style: TextStyle(color: AppColors.textSecondary)),
