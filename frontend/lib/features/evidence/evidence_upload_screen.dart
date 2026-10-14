@@ -39,7 +39,7 @@ class EvidenceUploadScreen extends StatefulWidget {
 class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
   final _files = <_PendingFile>[];
   late String _caseId;
-  _EvidenceType _type = _EvidenceType.documents;
+  final _types = <_EvidenceType>{_EvidenceType.documents};
   bool _uploading = false;
 
   @override
@@ -48,6 +48,19 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
     final cases = MockRepository.instance.cases();
     _caseId = widget.initialCaseId ?? cases.first.id;
   }
+
+  void _toggleType(_EvidenceType t) => setState(() {
+        if (!_types.remove(t)) _types.add(t);
+      });
+
+  /// Picking a file ticks its type, so mixed uploads are labelled for free.
+  _EvidenceType _typeForFile(String name) =>
+      switch (name.split('.').last.toLowerCase()) {
+        'pdf' || 'docx' || 'xlsx' => _EvidenceType.documents,
+        'jpg' || 'jpeg' || 'png' => _EvidenceType.images,
+        'mp4' => _EvidenceType.videos,
+        _ => _EvidenceType.other,
+      };
 
   Future<void> _browse() async {
     final picked = await FilePicker.pickFiles(
@@ -63,6 +76,7 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
         rejected.add(f.name);
       } else {
         _files.add(_PendingFile(f.name, size));
+        _types.add(_typeForFile(f.name));
       }
     }
     if (!mounted) return;
@@ -140,26 +154,46 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
           const Text('Evidence Type',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
           const SizedBox(height: 8),
+          // Several types can be ticked, since one upload may mix them.
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 16,
+            runSpacing: 4,
             children: [
               for (final t in _EvidenceType.values)
-                ChoiceChip(
-                  label: Text(switch (t) {
-                    _EvidenceType.documents => 'Documents',
-                    _EvidenceType.images => 'Images',
-                    _EvidenceType.videos => 'Videos',
-                    _EvidenceType.other => 'Other',
-                  }),
-                  selected: _type == t,
-                  onSelected: (_) => setState(() => _type = t),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: _uploading ? null : () => _toggleType(t),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Checkbox(
+                          value: _types.contains(t),
+                          onChanged: _uploading ? null : (_) => _toggleType(t),
+                        ),
+                        Text(switch (t) {
+                          _EvidenceType.documents => 'Documents',
+                          _EvidenceType.images => 'Images',
+                          _EvidenceType.videos => 'Videos',
+                          _EvidenceType.other => 'Other',
+                        }),
+                      ],
+                    ),
+                  ),
                 ),
             ],
           ),
+          if (_types.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text('Select at least one evidence type',
+                  style: TextStyle(fontSize: 12, color: AppColors.danger)),
+            ),
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: _files.isEmpty || _uploading ? null : _upload,
+            onPressed:
+                _files.isEmpty || _types.isEmpty || _uploading ? null : _upload,
             child: Text(_uploading
                 ? 'Uploading…'
                 : _files.isEmpty
