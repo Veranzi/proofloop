@@ -2,10 +2,11 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth_service.dart';
 import '../features/auth/login_screen.dart';
+import '../features/auth/signup_screen.dart';
 import '../features/auth/splash_screen.dart';
 
 /// Routes that can be opened without signing in.
-const _publicRoutes = {'/', '/login'};
+const _publicRoutes = {'/', '/login', '/signup', '/verify-email'};
 
 final appRouter = GoRouter(
   initialLocation: '/',
@@ -19,5 +20,6 @@ final appRouter = GoRouter(
   routes: [
     GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+    GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
   ],
 );
