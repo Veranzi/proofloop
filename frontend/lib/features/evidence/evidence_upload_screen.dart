@@ -39,7 +39,9 @@ class EvidenceUploadScreen extends StatefulWidget {
 class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
   final _files = <_PendingFile>[];
   late String _caseId;
-  final _types = <_EvidenceType>{_EvidenceType.documents};
+  // Required: nothing is pre-selected, the user (or the picked files) decide.
+  final _types = <_EvidenceType>{};
+  bool _showTypeError = false;
   bool _uploading = false;
 
   @override
@@ -51,6 +53,7 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
 
   void _toggleType(_EvidenceType t) => setState(() {
         if (!_types.remove(t)) _types.add(t);
+        if (_types.isNotEmpty) _showTypeError = false;
       });
 
   /// Picking a file ticks its type, so mixed uploads are labelled for free.
@@ -80,7 +83,9 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
       }
     }
     if (!mounted) return;
-    setState(() {});
+    setState(() {
+      if (_types.isNotEmpty) _showTypeError = false;
+    });
     if (rejected.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Over 100 MB, not added: ${rejected.join(', ')}'),
@@ -89,6 +94,10 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
   }
 
   Future<void> _upload() async {
+    if (_types.isEmpty) {
+      setState(() => _showTypeError = true);
+      return;
+    }
     setState(() => _uploading = true);
     for (final f in _files.where((f) => !f.done)) {
       // Simulated transfer; replace with the signed-URL PUT.
@@ -151,8 +160,16 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
             onChanged: _uploading ? null : (v) => setState(() => _caseId = v!),
           ),
           const SizedBox(height: 20),
-          const Text('Evidence Type',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          const Text.rich(
+            TextSpan(
+              text: 'Evidence Type ',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              children: [
+                TextSpan(text: '*', style: TextStyle(color: AppColors.danger)),
+              ],
+            ),
+            semanticsLabel: 'Evidence Type, required',
+          ),
           const SizedBox(height: 8),
           // Several types can be ticked, since one upload may mix them.
           Wrap(
@@ -184,7 +201,7 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
                 ),
             ],
           ),
-          if (_types.isEmpty)
+          if (_showTypeError)
             const Padding(
               padding: EdgeInsets.only(top: 4),
               child: Text('Select at least one evidence type',
@@ -193,7 +210,7 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
           const SizedBox(height: 24),
           FilledButton(
             onPressed:
-                _files.isEmpty || _types.isEmpty || _uploading ? null : _upload,
+                _files.isEmpty || _uploading ? null : _upload,
             child: Text(_uploading
                 ? 'Uploading…'
                 : _files.isEmpty
