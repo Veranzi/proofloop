@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/auth_service.dart';
+import '../features/auth/splash_screen.dart';
 
 /// Routes that can be opened without signing in.
 const _publicRoutes = {'/'};
@@ -16,10 +16,6 @@ final appRouter = GoRouter(
     return null;
   },
   routes: [
-    GoRoute(
-      path: '/',
-      builder: (context, state) =>
-          const Scaffold(body: Center(child: Text('ProofLoop'))),
-    ),
+    GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
   ],
 );
