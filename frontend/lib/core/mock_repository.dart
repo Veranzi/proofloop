@@ -161,6 +161,29 @@ class MockRepository {
   /// GET /v1/cases (endpoint 3)
   List<CaseItem> cases() => List.unmodifiable(_cases);
 
+  /// POST /v1/cases (endpoint 4). The server assigns the id.
+  CaseItem addCase({
+    required String title,
+    required String category,
+    required String description,
+    required Priority priority,
+    required String assignedTo,
+  }) {
+    final next = _cases.length + 1;
+    final item = CaseItem(
+      id: 'PL-${next.toString().padLeft(3, '0')}',
+      title: title,
+      category: category,
+      description: description,
+      status: CaseStatus.awaitingEvidence,
+      priority: priority,
+      createdAt: DateTime.now(),
+      assignedTo: assignedTo,
+    );
+    _cases.insert(0, item);
+    return item;
+  }
+
   /// GET /v1/cases/{caseId} (endpoint 5)
   CaseItem? caseById(String id) {
     for (final c in _cases) {

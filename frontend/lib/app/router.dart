@@ -6,6 +6,7 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
 import '../features/auth/splash_screen.dart';
 import '../features/auth/verify_email_screen.dart';
+import '../features/cases/cases_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../widgets/app_shell.dart';
 
@@ -54,6 +55,12 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/dashboard',
           builder: (context, state) => const DashboardScreen(),
+        ),
+        GoRoute(
+          path: '/cases',
+          builder: (context, state) => CasesScreen(
+            openNewCase: state.uri.queryParameters['new'] == '1',
+          ),
         ),
       ],
     ),
