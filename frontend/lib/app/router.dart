@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../core/auth_service.dart';
+import '../features/admin/admin_screen.dart';
 import '../features/auth/forgot_password_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/signup_screen.dart';
@@ -93,6 +94,13 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/profile',
           builder: (context, state) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: '/admin',
+          // Hidden from the menu for non-admins; the API enforces it too.
+          redirect: (context, state) =>
+              AuthService.instance.isAdmin ? null : '/dashboard',
+          builder: (context, state) => const AdminScreen(),
         ),
       ],
     ),
