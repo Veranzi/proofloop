@@ -9,6 +9,7 @@ import '../features/auth/verify_email_screen.dart';
 import '../features/cases/case_details_screen.dart';
 import '../features/cases/cases_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
+import '../features/evidence/evidence_upload_screen.dart';
 import '../widgets/app_shell.dart';
 
 /// Routes that can be opened without signing in.
@@ -67,6 +68,12 @@ final appRouter = GoRouter(
           path: '/cases/:id',
           builder: (context, state) =>
               CaseDetailsScreen(caseId: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/evidence',
+          builder: (context, state) => EvidenceUploadScreen(
+            initialCaseId: state.uri.queryParameters['case'],
+          ),
         ),
       ],
     ),
