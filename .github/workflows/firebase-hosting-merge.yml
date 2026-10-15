@@ -1,10 +1,14 @@
+```yaml
 name: Preview PruFlo on Firebase Hosting
 
-on:
+'on':
   pull_request:
     branches:
       - main
-    types: [opened, synchronize, reopened]
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   checks: write
@@ -44,3 +48,4 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_UNDERCURRENT_CB9F8 }}
           projectId: undercurrent-cb9f8
           entryPoint: .
+```
