@@ -1,7 +1,7 @@
 ```yaml
 name: Preview PruFlo on Firebase Hosting
 
-on:
+'on':
   pull_request:
     branches:
       - main
@@ -21,11 +21,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
@@ -38,7 +36,7 @@ jobs:
         working-directory: frontend
         run: flutter build web --release
 
-      - name: Deploy Firebase preview
+      - name: Deploy preview
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
