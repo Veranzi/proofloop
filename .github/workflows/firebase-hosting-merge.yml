@@ -1,23 +1,16 @@
 ```yaml
-name: Preview PruFlo on Firebase Hosting
+name: Deploy PruFlo to Firebase Hosting on merge
 
-'on':
-  pull_request:
+on:
+  push:
     branches:
       - main
-    types:
-      - opened
-      - synchronize
-      - reopened
 
 permissions:
-  checks: write
   contents: read
-  pull-requests: write
 
 jobs:
-  build_and_preview:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+  build_and_deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -37,15 +30,16 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
-      - name: Build Flutter web app
+      - name: Build Flutter web
         working-directory: frontend
         run: flutter build web --release
 
-      - name: Deploy preview to Firebase Hosting
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_UNDERCURRENT_CB9F8 }}
+          channelId: live
           projectId: undercurrent-cb9f8
           entryPoint: .
 ```
