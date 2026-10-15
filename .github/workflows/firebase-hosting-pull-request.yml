@@ -1,6 +1,5 @@
-# Deploy ProofLoop preview for pull requests
-
-name: Preview ProofLoop on Firebase Hosting
+```yaml
+name: Preview PruFlo on Firebase Hosting
 
 on:
   pull_request:
@@ -28,13 +27,16 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Verify Flutter
+        run: flutter --version
+
       - name: Install dependencies
         working-directory: frontend
         run: flutter pub get
 
       - name: Build Flutter web app
         working-directory: frontend
-        run: flutter build web
+        run: flutter build web --release
 
       - name: Deploy preview to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
@@ -42,4 +44,5 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_UNDERCURRENT_CB9F8 }}
           projectId: undercurrent-cb9f8
-          entryPoint: frontend
+          entryPoint: .
+```
