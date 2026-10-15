@@ -22,7 +22,7 @@ class BrandLogo extends StatelessWidget {
         SizedBox(width: size * 0.35),
         Flexible(
           child: Text(
-            'ProofLoop',
+            'PruFlo',
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: size,
