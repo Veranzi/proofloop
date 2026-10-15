@@ -1,4 +1,4 @@
-# Proofloop
+# PruFlo
 
 Asynchronous evidence processing with human-controlled decisions, on Google Cloud (asia-southeast1).
 
