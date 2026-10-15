@@ -1,12 +1,13 @@
-# Deploy ProofLoop preview for pull requests
-
-name: Preview ProofLoop on Firebase Hosting
+name: Preview PruFlo on Firebase Hosting
 
 on:
   pull_request:
     branches:
       - main
-    types: [opened, synchronize, reopened]
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   checks: write
@@ -28,13 +29,16 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Verify Flutter
+        run: flutter --version
+
       - name: Install dependencies
         working-directory: frontend
         run: flutter pub get
 
-      - name: Build Flutter web app
+      - name: Build Flutter web
         working-directory: frontend
-        run: flutter build web
+        run: flutter build web --release
 
       - name: Deploy preview to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
