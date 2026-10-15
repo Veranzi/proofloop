@@ -1,7 +1,6 @@
-```yaml
 name: Deploy PruFlo to Firebase Hosting on merge
 
-'on':
+on:
   push:
     branches:
       - main
@@ -14,12 +13,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Verify Flutter
+        run: flutter --version
 
       - name: Install dependencies
         working-directory: frontend
@@ -29,7 +33,7 @@ jobs:
         working-directory: frontend
         run: flutter build web --release
 
-      - name: Deploy live site
+      - name: Deploy live site to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
@@ -37,4 +41,3 @@ jobs:
           projectId: undercurrent-cb9f8
           channelId: live
           entryPoint: .
-```
