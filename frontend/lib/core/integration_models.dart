@@ -61,12 +61,12 @@ class ApiKey {
 enum WebhookEvent {
   evidenceProcessed('evidence.processed', 'Evidence processed'),
   evidenceFailed('evidence.failed', 'Evidence processing failed'),
-  caseReviewRequired('case.review_required', 'Case needs review'),
+  caseInReview('case.in_review', 'Case needs review'),
   findingDecided(
     'finding.decided',
-    'Finding confirmed, corrected or dismissed',
+    'Finding approved, rejected or set to pending',
   ),
-  caseReviewed('case.reviewed', 'Case review completed'),
+  caseCompleted('case.completed', 'Case review completed'),
   reportReady('report.ready', 'Report or export ready');
 
   const WebhookEvent(this.wire, this.label);

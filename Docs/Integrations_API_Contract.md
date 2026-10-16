@@ -99,9 +99,9 @@ PruFlo POSTs to registered URLs when events happen, so other systems don't need 
 | --- | --- | --- |
 | `evidence.processed` | Worker finished an evidence file | `case_id`, `evidence_id`, `status` |
 | `evidence.failed` | Evidence reached `failed_terminal` | `case_id`, `evidence_id`, `error_class` |
-| `case.review_required` | Case moved to `review_required` | `case_id`, `open_findings` |
-| `finding.decided` | A reviewer confirmed, corrected or dismissed a finding | `case_id`, `finding_id`, `decision`, `actor_uid` |
-| `case.reviewed` | Every finding in the case has a decision | `case_id` |
+| `case.in_review` | Case moved to `in_review` | `case_id`, `pending_findings` |
+| `finding.decided` | A reviewer set a finding to `approve`, `reject` or `pending` | `case_id`, `finding_id`, `decision`, `actor_uid` |
+| `case.completed` | Case moved to `completed`: no finding is `pending` | `case_id` |
 | `report.ready` | PDF report or data export generated | `case_id`, `report_id`, `format` |
 | `ping` | Test button (endpoint 41) | `{}` |
 
@@ -119,7 +119,7 @@ X-Pruflo-Signature: t=1760607000,v1=5f2c...e9
   "type": "finding.decided",
   "created_at": "2026-10-16T09:30:00Z",
   "tenant_id": "ten_acme",
-  "data": { "case_id": "PL-001", "finding_id": "fnd_7c1e", "decision": "confirmed", "actor_uid": "u_456" }
+  "data": { "case_id": "PL-001", "finding_id": "fnd_7c1e", "decision": "approve", "actor_uid": "u_456" }
 }
 ```
 
@@ -141,12 +141,12 @@ Each item includes its last 5 deliveries, so the screen can show them without a 
       "id": "wh_01",
       "url": "https://erp.example.com/hooks/pruflo",
       "description": "ERP exception queue",
-      "events": ["case.review_required", "finding.decided"],
+      "events": ["case.in_review", "finding.decided"],
       "active": true,
       "created_at": "2026-10-07T10:00:00Z",
       "recent_deliveries": [
         { "id": "dlv_51b0", "event": "finding.decided", "status_code": 200, "attempt": 1, "at": "2026-10-16T08:30:00Z" },
-        { "id": "dlv_51a9", "event": "case.review_required", "status_code": 503, "attempt": 2, "at": "2026-10-16T05:30:00Z" }
+        { "id": "dlv_51a9", "event": "case.in_review", "status_code": 503, "attempt": 2, "at": "2026-10-16T05:30:00Z" }
       ]
     }
   ],
@@ -295,19 +295,19 @@ Same body as the response above. Before saving, validate that:
 
 - the provider has an adapter;
 - the model ID is on a server-side allowlist (no free-text model names reach Vertex);
-- the provider offers that model or processor in the chosen region. From our research, Document AI has only limited single-region support in `asia-southeast1` and needs an access request, while Gemini 2.5 models have in-region processing there. Re-check both against Google's docs.
+- the provider offers that model or processor in the chosen region. The default region is `asia-southeast1` (Singapore). Check Google's docs for Document AI and Gemini availability in the chosen region before relying on it; if either is missing, the request must fail with `400 provider_not_available` rather than silently processing in another region.
 
 Changes apply to evidence processed afterwards. Record `ocr`, `ai`, `model` and `region` on every claim, as section 5.1 of the architecture report already requires.
 
 Provider **credentials** are configured on the server (service accounts, Secret Manager). This endpoint never takes or returns secrets.
 
-**Region and Kenyan data.** The region list in the UI is `asia-southeast1`, `africa-south1` and `europe-west1`. Storing Kenyan personal data outside Kenya is a cross-border transfer under the Data Protection Act, 2019, and the ODPC issued transfer guidance in 2026. The UI warns admins about this; the legal decision still has to be made before real documents are used.
+**Region.** PruFlo serves the Southeast Asian market (Singapore, Malaysia, Indonesia). The default region is `asia-southeast1` (Singapore); `asia-southeast2` (Jakarta) is the only other option in the UI. Any other value returns `400`.
 
 ## 6. Findings export (JSON and CSV)
 
 ### 50 `GET /v1/cases/{caseId}/export?format=json|csv`
 
-- Scope `findings:read` for API keys; normal case membership for people.
+- Scope `findings:read` for API keys. For people: case membership **and** the role `investigator`, `reviewer` or `admin`. A `viewer` gets `403`. The same rule applies to PDF reports (17–19).
 - Built **only** from stored claims, findings and review actions, the same rule as the PDF report.
 - Small cases: return the file directly with `Content-Disposition: attachment; filename="case-PL-001-findings.json"`. Large cases: return `202` with a `report_id`, generate it in the worker, fire `report.ready`, and serve it through the existing download-URL endpoint (19).
 
@@ -316,7 +316,7 @@ JSON (`schema_version` lets the shape change later without breaking receivers):
 ```json
 {
   "schema_version": "1.0",
-  "case": { "id": "PL-001", "title": "Fraud Investigation", "status": "reviewed" },
+  "case": { "id": "PL-001", "title": "Fraud Investigation", "status": "completed" },
   "generated_at": "2026-10-16T09:30:00Z",
   "findings": [
     {
@@ -328,7 +328,7 @@ JSON (`schema_version` lets the shape change later without breaking receivers):
       "expected":   { "value": "100", "unit": "units" },
       "observed":   { "value": "80",  "unit": "units" },
       "difference": { "value": "20",  "unit": "units" },
-      "review": { "status": "confirmed", "by": "Sarah Johnson", "at": "2026-10-16T09:10:00Z", "note": "Supplier confirmed 20 units back-ordered." },
+      "review": { "status": "approve", "by": "Sarah Johnson", "at": "2026-10-16T09:10:00Z", "note": "Supplier confirmed 20 units back-ordered." },
       "explanation": "The purchase order lists 100 units; the delivery note records 80 units received.",
       "explanation_source": "machine_generated",
       "evidence": [
@@ -344,7 +344,8 @@ JSON (`schema_version` lets the shape change later without breaking receivers):
 }
 ```
 
-- `review.status` is `open`, `confirmed`, `corrected` or `dismissed`. A `corrected` finding also has `review.previous` and `review.new`.
+- `review.status` is `pending`, `approve` or `reject` (the same values as `ReviewDecision` in `frontend/lib/core/models.dart`). Every finding starts as `pending`. If the reviewer corrected an extracted value, `review.correction` holds `{ "field", "previous", "new" }`.
+- `case.status` is `awaiting_evidence`, `in_review` or `completed` (the same values as `CaseStatus`).
 - `grounding` is `grounded`, `ambiguous`, `ungrounded` or `needs_review`.
 - `source_url` is a **relative API path**, not a signed URL. Signed URLs expire, and they must not end up in exported files.
 
@@ -352,7 +353,7 @@ CSV has one row per finding, a header row, RFC 4180 quoting and UTF-8 encoding:
 
 ```
 case_id,finding_id,rule_id,rule_version,severity,expected,observed,difference,unit,review_status,reviewed_by,reviewed_at,evidence
-PL-001,fnd_7c1e,quantity_shortfall,3,high,100,80,20,units,confirmed,Sarah Johnson,2026-10-16T09:10:00Z,purchase_order.pdf p1; delivery_note.pdf p1
+PL-001,fnd_7c1e,quantity_shortfall,3,high,100,80,20,units,approve,Sarah Johnson,2026-10-16T09:10:00Z,purchase_order.pdf p1; delivery_note.pdf p1
 ```
 
 The frontend's sample generator (`case_export.dart`) produces exactly these shapes, and `frontend/test/integrations_test.dart` checks them.
@@ -370,5 +371,5 @@ The frontend's sample generator (`case_export.dart`) produces exactly these shap
 
 - Should one key be able to span several tenants, for a partner who serves many clients? This document assumes no.
 - Should `finding.decided` include the corrected values, or only IDs? This document says only IDs.
-- What file and page limits apply to emailed attachments?
+- Emailed attachments use the same limits as uploads: 25 MB per file, 200 pages per document, and the same file types (see `Docs/backend_plan.md`, Step 0).
 - How long are webhook delivery logs and revoked keys kept? Suggested: 30 days for logs, indefinitely for keys (they're audit records).

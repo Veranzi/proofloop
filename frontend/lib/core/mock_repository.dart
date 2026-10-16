@@ -88,9 +88,9 @@ class MockRepository {
         uploadedAt: _now.subtract(const Duration(hours: 3)),
         caseId: 'PL-001'),
     EvidenceFile(
-        name: 'video.mp4',
-        sizeLabel: '12.5 MB',
-        type: 'MP4',
+        name: 'stock_count.csv',
+        sizeLabel: '96 KB',
+        type: 'CSV',
         uploadedAt: _now.subtract(const Duration(hours: 5)),
         caseId: 'PL-002'),
     EvidenceFile(

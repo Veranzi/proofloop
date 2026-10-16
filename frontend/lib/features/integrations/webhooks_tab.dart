@@ -225,8 +225,8 @@ class _AddWebhookDialogState extends State<_AddWebhookDialog> {
   final _url = TextEditingController();
   final _description = TextEditingController();
   final _events = <WebhookEvent>{
-    WebhookEvent.caseReviewRequired,
-    WebhookEvent.caseReviewed,
+    WebhookEvent.caseInReview,
+    WebhookEvent.caseCompleted,
   };
   bool _showEventError = false;
 
