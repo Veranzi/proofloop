@@ -10,7 +10,7 @@ Asynchronous evidence processing with human-controlled decisions, on Google Clou
 | --- | --- |
 | `frontend/` | Flutter client (web, Android, iOS) |
 | `backend/` | Python services: FastAPI API on Cloud Run, processing worker, report generation |
-| `Docs/` | Technical architecture report |
+| `Docs/` | Technical architecture report; [Integrations API contract](Docs/Integrations_API_Contract.md) for API keys, webhooks, connectors, rules, providers and export |
 
 ## Branches
 

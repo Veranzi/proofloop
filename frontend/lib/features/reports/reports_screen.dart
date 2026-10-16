@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../core/case_export.dart';
 import '../../core/formatters.dart';
 import '../../core/mock_repository.dart';
 import '../../core/models.dart';
@@ -8,11 +9,14 @@ import '../../widgets/page_header.dart';
 
 enum _ReportType { summary, detailed, executive }
 
+enum _ExportFormat { json, csv }
+
 /// Generate a case report and list recent ones.
 ///
 /// API: POST /v1/cases/{caseId}/reports (17) starts generation,
 /// GET .../reports (18) lists them, and GET .../download-url (19) returns a
-/// signed URL for the PDF.
+/// signed URL for the PDF. GET /v1/cases/{caseId}/export (50) returns the
+/// findings as JSON or CSV for other systems.
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key, this.initialCaseId});
 
@@ -32,6 +36,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     'Recommendations': true,
   };
   bool _generating = false;
+  _ExportFormat _exportFormat = _ExportFormat.json;
 
   @override
   void initState() {
@@ -59,6 +64,41 @@ class _ReportsScreenState extends State<ReportsScreen> {
   void _download(ReportItem r) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Downloading ${r.title}.pdf'),
+    ));
+  }
+
+  void _previewExport() {
+    final item = MockRepository.instance.caseById(_caseId)!;
+    final format = _exportFormat.name.toUpperCase();
+    final body = _exportFormat == _ExportFormat.json
+        ? CaseExport.json(item)
+        : CaseExport.csv(item);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Case #${item.id} export ($format)'),
+        content: SizedBox(
+          width: 560,
+          height: 420,
+          child: SingleChildScrollView(
+            child: SelectableText(body,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ),
+        ),
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(100, 44)),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _downloadExport() {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Downloading case-$_caseId-findings.${_exportFormat.name}'),
     ));
   }
 
@@ -133,6 +173,48 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
 
+    final export = SectionCard(
+      title: 'Export Findings Data',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Findings with their source references, for spreadsheets or other '
+            'systems. Uses the case selected above.',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          SegmentedButton<_ExportFormat>(
+            segments: const [
+              ButtonSegment(value: _ExportFormat.json, label: Text('JSON')),
+              ButtonSegment(value: _ExportFormat.csv, label: Text('CSV')),
+            ],
+            selected: {_exportFormat},
+            onSelectionChanged: (s) => setState(() => _exportFormat = s.first),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _previewExport,
+                  child: const Text('Preview'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _downloadExport,
+                  icon: const Icon(Icons.download_outlined, size: 18),
+                  label: const Text('Download'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
     final recent = SectionCard(
       title: 'Recent Reports',
       child: Column(
@@ -156,7 +238,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 3, child: form),
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [form, const SizedBox(height: 20), export],
+                  ),
+                ),
                 const SizedBox(width: 20),
                 Expanded(flex: 2, child: recent),
               ],
@@ -166,6 +254,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
             recent,
             const SizedBox(height: 16),
             form,
+            const SizedBox(height: 16),
+            export,
           ],
         ],
       ),

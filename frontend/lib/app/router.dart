@@ -11,6 +11,7 @@ import '../features/cases/case_details_screen.dart';
 import '../features/cases/cases_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/evidence/evidence_upload_screen.dart';
+import '../features/integrations/integrations_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/review/review_workspace_screen.dart';
@@ -101,6 +102,12 @@ final appRouter = GoRouter(
           redirect: (context, state) =>
               AuthService.instance.isAdmin ? null : '/dashboard',
           builder: (context, state) => const AdminScreen(),
+        ),
+        GoRoute(
+          path: '/integrations',
+          redirect: (context, state) =>
+              AuthService.instance.isAdmin ? null : '/dashboard',
+          builder: (context, state) => const IntegrationsScreen(),
         ),
       ],
     ),
