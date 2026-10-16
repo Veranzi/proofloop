@@ -37,7 +37,10 @@ The API requires an App Check token in production unless it runs with `PRUFLO_AP
 
    ```bash
    cd backend
-   docker compose up -d
+   cp .env.example .env    # set PRUFLO_DB_PASSWORD: openssl rand -hex 16
+   docker compose up -d postgres
+   python3.12 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements-dev.txt
    alembic upgrade head
    python -m app.cli bootstrap --tenant "My Org" --admin-email you@example.com --admin-name "Your Name"
    uvicorn app.main:app --reload --port 8000 --no-access-log
@@ -83,17 +86,17 @@ Deployment is automated by two GitHub Actions workflows in `.github/workflows/`:
 
 Hosting settings are in `firebase.json`: `build/web` is served with SPA rewrites to `index.html` and `Cache-Control: no-cache`, so browsers pick up new releases straight away.
 
-> **Before the next deploy:** both workflows currently run `flutter build web --release` with no `--dart-define` values. Such a build points at `http://localhost:8000` and uses development sign-in, so the live site won't work. Store the values above as GitHub repository variables, then change the build step in both workflows to:
->
-> ```yaml
-> run: >-
->   flutter build web --release
->   --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
->   --dart-define=FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
->   --dart-define=FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
->   --dart-define=FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
->   --dart-define=FIREBASE_APP_CHECK_SITE_KEY=${{ vars.FIREBASE_APP_CHECK_SITE_KEY }}
-> ```
+Both workflows pass the build settings from GitHub repository variables (**Settings → Secrets and variables → Actions → Variables**):
+
+| Variable | Required | Value |
+| --- | --- | --- |
+| `API_BASE_URL` | yes | The deployed API, `https://...` |
+| `FIREBASE_API_KEY` | yes | From the Firebase web app config |
+| `FIREBASE_APP_ID` | yes | From the Firebase web app config |
+| `FIREBASE_MESSAGING_SENDER_ID` | yes | From the Firebase web app config |
+| `FIREBASE_APP_CHECK_SITE_KEY` | if the API requires App Check | reCAPTCHA v3 site key |
+
+A **Check build settings** step stops the workflow if a required variable is missing or `API_BASE_URL` isn't `https`, so a misconfigured build never replaces the live site.
 
 To deploy by hand, run `firebase deploy --only hosting:web --project pruflo` from `frontend/`. The project alias is in `frontend/.firebaserc`.
 
