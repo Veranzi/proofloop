@@ -34,3 +34,28 @@ def record(
     )
     db.add(event)
     return event
+
+
+def record_system(
+    db: Session,
+    tenant_id: str,
+    action: str,
+    target_type: str,
+    target_id: str,
+    *,
+    case_id: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> AuditEvent:
+    """A change made by the worker, with no person or API key behind it."""
+    event = AuditEvent(
+        id=new_id("aud"),
+        tenant_id=tenant_id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        case_id=case_id,
+        request_id=request_id_var.get(),
+        details=details or {},
+    )
+    db.add(event)
+    return event
