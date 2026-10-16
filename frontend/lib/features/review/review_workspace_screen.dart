@@ -58,7 +58,7 @@ class _ReviewWorkspaceScreenState extends State<ReviewWorkspaceScreen> {
           ),
           AsyncView<List<CaseItem>>(
             future: _cases,
-            onRetry: () => setState(() => _cases = _loadCases()),
+            onRetry: () => setState(() { _cases = _loadCases(); }),
             builder: (context, cases) {
               final selected = _case;
               if (cases.isEmpty || selected == null) {
@@ -180,7 +180,7 @@ class _CaseReviewState extends State<_CaseReview> {
                   AsyncView<List<Finding>>(
                     future: _findingsFuture,
                     onRetry: () =>
-                        setState(() => _findingsFuture = _loadFindings()),
+                        setState(() { _findingsFuture = _loadFindings(); }),
                     builder: (context, findings) => _FindingsList(
                       caseId: _case.id,
                       findings: findings,
@@ -760,7 +760,7 @@ class _TimelineState extends State<_Timeline> {
     return AsyncView<List<TimelineItem>>(
       future: _future,
       onRetry: () =>
-          setState(() => _future = PrufloApi().timeline(widget.caseId)),
+          setState(() { _future = PrufloApi().timeline(widget.caseId); }),
       builder: (context, events) => events.isEmpty
           ? const EmptyPanel(title: 'Nothing has happened yet.')
           : TimelineList(events, padding: const EdgeInsets.all(20)),

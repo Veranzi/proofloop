@@ -34,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return _DashboardData(cases, truncated, activity);
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() { _future = _load(); });
 
   String _greeting() {
     final h = DateTime.now().hour;

@@ -23,7 +23,7 @@ class _ApiKeysTabState extends State<ApiKeysTab> {
   final _api = IntegrationsApi();
   late Future<List<ApiKey>> _future = _api.apiKeys();
 
-  void _reload() => setState(() => _future = _api.apiKeys());
+  void _reload() => setState(() { _future = _api.apiKeys(); });
 
   Future<void> _create() async {
     final result = await showDialog<(String, Set<ApiScope>)>(

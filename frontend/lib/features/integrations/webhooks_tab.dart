@@ -24,7 +24,7 @@ class _WebhooksTabState extends State<WebhooksTab> {
   final _api = IntegrationsApi();
   late Future<List<WebhookEndpoint>> _future = _api.webhooks();
 
-  void _reload() => setState(() => _future = _api.webhooks());
+  void _reload() => setState(() { _future = _api.webhooks(); });
 
   Future<void> _guard(Future<void> Function() call) async {
     try {

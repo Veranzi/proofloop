@@ -26,11 +26,11 @@ class _ProvidersTabState extends State<ProvidersTab> {
   Widget build(BuildContext context) {
     return AsyncView<ProviderSettings>(
       future: _future,
-      onRetry: () => setState(() => _future = _api.providers()),
+      onRetry: () => setState(() { _future = _api.providers(); }),
       builder: (context, saved) => _ProvidersForm(
         key: ValueKey(saved),
         saved: saved,
-        onSaved: (s) => setState(() => _future = Future.value(s)),
+        onSaved: (s) => setState(() { _future = Future.value(s); }),
       ),
     );
   }

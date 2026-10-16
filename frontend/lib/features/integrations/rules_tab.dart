@@ -22,7 +22,7 @@ class _RulesTabState extends State<RulesTab> {
   final _api = IntegrationsApi();
   late Future<List<ReconciliationRule>> _future = _api.rules();
 
-  void _reload() => setState(() => _future = _api.rules());
+  void _reload() => setState(() { _future = _api.rules(); });
 
   Future<void> _edit(ReconciliationRule rule) async {
     final params = await showDialog<List<RuleParam>>(

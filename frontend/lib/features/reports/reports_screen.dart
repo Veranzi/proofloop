@@ -75,7 +75,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
           AsyncView<List<CaseItem>>(
             future: _cases,
-            onRetry: () => setState(() => _cases = _loadCases()),
+            onRetry: () => setState(() { _cases = _loadCases(); }),
             builder: (context, cases) {
               final caseId = _caseId;
               if (cases.isEmpty || caseId == null) {

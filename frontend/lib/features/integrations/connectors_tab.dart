@@ -25,7 +25,7 @@ class _ConnectorsTabState extends State<ConnectorsTab> {
   final _api = IntegrationsApi();
   late Future<List<Connector>> _future = _api.connectors();
 
-  void _reload() => setState(() => _future = _api.connectors());
+  void _reload() => setState(() { _future = _api.connectors(); });
 
   Future<void> _connect(ConnectorKind kind) async {
     final Widget? dialog = switch (kind) {
