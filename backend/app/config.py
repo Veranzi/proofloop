@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # The Firebase project whose sign-in tokens are accepted (login-register-125ef for
     # pruflo.web.app). Defaults to gcp_project when they are the same project.
     firebase_project: str = ""
+    # Also ask Firebase whether the session was revoked (needs the runtime
+    # identity to have Firebase Auth admin access on that project). Turn off
+    # only for local development.
+    firebase_check_revoked: bool = True
     region: str = "asia-southeast1"
     evidence_bucket: str = "pruflo-evidence-local"
     pubsub_topic: str = "evidence-jobs"

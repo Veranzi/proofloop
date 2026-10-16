@@ -322,3 +322,44 @@ def test_remove_user_takes_away_access_but_keeps_audit_trail(
     admin = make.person(Role.ADMIN, person.tenant)
     items = client.get(f"/v1/cases/{case.id}/timeline", headers=admin.headers).json()["items"]
     assert items[0]["actor"]["name"] == "Placeholder"
+
+
+def test_firebase_outage_is_503_not_invalid_token(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from firebase_admin import auth as firebase_auth
+
+    def unreachable(*args: object, **kwargs: object) -> None:
+        raise firebase_auth.CertificateFetchError("no network", cause=None)
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", unreachable)
+    res = client.get("/v1/me", headers={"Authorization": "Bearer eyJhbGciOi.real.firebase"})
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "auth_unavailable"
+
+
+def test_real_token_path_uses_firebase_claims(
+    client: TestClient, make: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from firebase_admin import auth as firebase_auth
+
+    person = make.person(Role.REVIEWER, invited_only=True)
+    seen: dict[str, object] = {}
+
+    def fake_verify(
+        token: str, app: object = None, check_revoked: bool = False
+    ) -> dict[str, object]:
+        seen["check_revoked"] = check_revoked
+        return {
+            "uid": "firebase-uid-1",
+            "email": person.user.email.upper(),
+            "email_verified": True,
+            "name": "From Firebase",
+        }
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", fake_verify)
+    monkeypatch.setattr("app.auth.firebase._firebase_app", lambda: None)
+    monkeypatch.setattr(get_settings(), "firebase_check_revoked", True)
+    res = client.get("/v1/me", headers={"Authorization": "Bearer eyJhbGciOi.real.firebase"})
+    assert res.status_code == 200 and res.json()["role"] == "reviewer"
+    assert seen["check_revoked"] is True  # the setting is passed through

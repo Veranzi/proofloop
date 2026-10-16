@@ -4,6 +4,7 @@ The user's identity always comes from a verified token, never from the
 request body.
 """
 
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -13,7 +14,9 @@ import jwt
 from firebase_admin import app_check, auth
 
 from app.config import get_settings
-from app.errors import unauthorized
+from app.errors import ApiError, unauthorized
+
+logger = logging.getLogger("pruflo.auth")
 
 DEV_TOKEN_PREFIX = "dev:"  # noqa: S105 (a prefix, not a secret)
 
@@ -54,14 +57,28 @@ def verify_id_token(token: str) -> FirebaseIdentity:
         if not dev_mode_enabled():
             raise unauthorized("Invalid token.")
         return _verify_dev_token(token)
+    import google.auth.exceptions
+    from firebase_admin import exceptions as firebase_exceptions
+
     try:
         claims: dict[str, Any] = auth.verify_id_token(
-            token, app=_firebase_app(), check_revoked=True
+            token, app=_firebase_app(), check_revoked=get_settings().firebase_check_revoked
         )
     except (auth.RevokedIdTokenError, auth.UserDisabledError) as exc:
         raise unauthorized("Your session has ended. Sign in again.") from exc
-    except (ValueError, auth.InvalidIdTokenError, auth.CertificateFetchError) as exc:
+    except (ValueError, auth.InvalidIdTokenError) as exc:
         raise unauthorized("Invalid token.") from exc
+    except (
+        auth.CertificateFetchError,
+        firebase_exceptions.FirebaseError,
+        google.auth.exceptions.GoogleAuthError,
+    ) as exc:
+        # Our problem, not the caller's: Google's keys or the revocation check
+        # (which needs admin access to the Firebase project) couldn't be reached.
+        logger.warning("Firebase token check unavailable: %s", type(exc).__name__)
+        raise ApiError(
+            503, "auth_unavailable", "Sign-in can't be checked right now. Try again shortly."
+        ) from exc
     return FirebaseIdentity(
         uid=str(claims["uid"]),
         email=str(claims.get("email", "")).lower(),

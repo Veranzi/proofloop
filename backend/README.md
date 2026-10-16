@@ -86,6 +86,7 @@ All settings are environment variables with the `PRUFLO_` prefix, read from `bac
 | `PRUFLO_DB_PASSWORD` | – | Local database password; with `PRUFLO_DB_USER`/`HOST`/`PORT`/`NAME` it builds the URL when `PRUFLO_DATABASE_URL` is empty |
 | `PRUFLO_GCP_PROJECT` | `pruflo-local` | GCP project for Storage, Pub/Sub and Document AI |
 | `PRUFLO_FIREBASE_PROJECT` | `PRUFLO_GCP_PROJECT` | Firebase project whose ID tokens are accepted (`login-register-125ef` for pruflo.web.app) |
+| `PRUFLO_FIREBASE_CHECK_REVOKED` | `true` | Also check that the session wasn't revoked. Needs the runtime identity to have Firebase Authentication admin access on the Firebase project; set `false` only locally |
 | `PRUFLO_REGION` | `asia-southeast1` | Deployment region |
 | `PRUFLO_STORAGE_BACKEND` | `local` | `gcs` on Cloud Run; `local` stores files on disk (local/test only) |
 | `PRUFLO_EVIDENCE_BUCKET` | `pruflo-evidence-local` | Private bucket for evidence and reports |
@@ -187,7 +188,7 @@ Plan Step 3 covers this; it hasn't been done yet. The pieces, all in `asia-south
 | Secret Manager | `PRUFLO_DATABASE_URL`, `PRUFLO_SECRETS_KEY` |
 | Document AI | OCR processor, optional |
 
-Give the API's service account Storage object admin on the bucket, Pub/Sub publisher, Cloud SQL client, Secret Manager accessor, and Service Account Token Creator on itself (for signed URLs). Give the worker the same (it also publishes follow-up events), plus Document AI API user and Firebase Cloud Messaging admin (`roles/firebasecloudmessaging.admin`, for push). Don't download service-account keys.
+Give the API's service account Storage object admin on the bucket, Pub/Sub publisher, Cloud SQL client, Secret Manager accessor, and Service Account Token Creator on itself (for signed URLs). Give the worker the same (it also publishes follow-up events), plus Document AI API user and Firebase Cloud Messaging admin (`roles/firebasecloudmessaging.admin`, for push). If the Firebase project (`login-register-125ef`) isn't the GCP project the services run in, also grant both service accounts **Firebase Authentication Admin** on the Firebase project, for the revocation check and push. Don't download service-account keys.
 
 ## Security notes
 
