@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/auth_service.dart';
+import '../../widgets/brand_logo.dart';
 
 /// Brand splash shown on launch, then hands off to sign-in or the dashboard.
 class SplashScreen extends StatefulWidget {
@@ -53,8 +54,7 @@ class _SplashScreenState extends State<SplashScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.all_inclusive,
-                      size: 72, color: Color(0xFF4F86FF)),
+                  Image.asset(PrufloMark.asset, width: 120),
                   const SizedBox(height: 16),
                   const Text(
                     'Pruflo',

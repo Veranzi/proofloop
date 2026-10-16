@@ -1,5 +1,18 @@
 {
   "projects": {
-    "default": "undercurrent-cb9f8"
+    "default": "undercurrent-cb9f8",
+    "pruflo": "login-register-125ef"
+  },
+  "targets": {
+    "undercurrent-cb9f8": {
+      "hosting": {
+        "web": ["undercurrent-cb9f8"]
+      }
+    },
+    "login-register-125ef": {
+      "hosting": {
+        "web": ["pruflo"]
+      }
+    }
   }
 }
