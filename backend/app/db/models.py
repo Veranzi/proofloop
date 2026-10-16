@@ -72,7 +72,8 @@ class User(Timestamped, Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    firebase_uid: Mapped[str] = mapped_column(String(128), unique=True)
+    # Empty until an invited user first signs in (linked by verified email).
+    firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True)
     email: Mapped[str] = mapped_column(String(320), index=True)
     name: Mapped[str] = mapped_column(String(200), server_default="")
     phone: Mapped[str] = mapped_column(String(40), server_default="")

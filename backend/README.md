@@ -26,6 +26,24 @@ uvicorn app.main:app --reload --port 8000
 Then open http://127.0.0.1:8000/healthz or http://127.0.0.1:8000/docs.
 The Flutter app calls `http://localhost:8000` by default.
 
+## Signing in locally
+
+Create an organisation and its first admin:
+
+```bash
+python -m app.cli bootstrap --tenant "Acme Ltd" --admin-email you@example.com --admin-name "Your Name"
+```
+
+With `PRUFLO_AUTH_DEV_MODE=true` (local and test only), send `Authorization: Bearer dev:<any-uid>:<email>`
+instead of a Firebase token. The first call links that UID to the invited email.
+
+```bash
+curl -H "Authorization: Bearer dev:me1:you@example.com" http://localhost:8000/v1/me
+```
+
+Everywhere else the API only accepts Firebase ID tokens (plus App Check) or `pf_live_` API keys.
+Users who haven't been invited get `403 not_invited`.
+
 ## Checks
 
 ```bash

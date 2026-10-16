@@ -12,9 +12,12 @@ from collections.abc import Iterator
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
+
+from tests.factories import Factory
 
 os.environ.setdefault("PRUFLO_ENV", "test")
 os.environ.setdefault("PRUFLO_AUTH_DEV_MODE", "true")
@@ -63,3 +66,22 @@ def db(connection: Connection) -> Iterator[Session]:
         bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
     ) as session:
         yield session
+
+
+@pytest.fixture
+def client(db: Session) -> Iterator[TestClient]:
+    """The API, using the test's session so everything rolls back afterwards."""
+    from app.auth.api_keys import rate_limiter
+    from app.db.session import get_db
+    from app.main import create_app
+
+    app = create_app()
+    app.dependency_overrides[get_db] = lambda: db
+    rate_limiter.reset()
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def make(db: Session) -> Factory:
+    return Factory(db)
