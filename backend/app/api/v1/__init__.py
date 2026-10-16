@@ -6,6 +6,7 @@ from app.api.v1 import (
     admin,
     api_keys,
     cases,
+    connectors,
     evidence,
     findings,
     me,
@@ -24,3 +25,4 @@ router.include_router(api_keys.router)
 router.include_router(admin.router)
 router.include_router(rules_providers.router)
 router.include_router(webhooks.router)
+router.include_router(connectors.router)
