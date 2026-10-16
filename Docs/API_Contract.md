@@ -142,3 +142,40 @@ Customer = { "id": "cus_...", "name": "Acme Supplies", "contact_email": "", "cre
 
 - Inviting (25) doesn't send an email. The person signs in with that email address, and their Firebase account is linked on first sign-in. `signed_in` is `false` until then.
 - There must always be at least one active admin: demoting, disabling or removing the last one returns `409`.
+
+## Notifications, profile photo and customer picker (51–57)
+
+| # | Method and path | Body / query | Response |
+| --- | --- | --- | --- |
+| 51 | `GET /v1/me/notifications` | `?unread_only=true`, `?cursor=`, `?limit=` | `{"items": [Notification], "next_cursor", "unread_count"}`, newest first |
+| 52 | `POST /v1/me/notifications/{notificationId}/read` | | `Notification` |
+| 53 | `POST /v1/me/notifications/read-all` | | `{"updated": 3}` |
+| 54 | `POST /v1/me/avatar/upload-url` | `{"content_type": "image/png"\|"image/jpeg", "size_bytes"}` (at most 5 MB) | `201 {"upload_url", "method", "headers", "expires_at"}` |
+| 55 | `POST /v1/me/avatar/complete` | | `Me` with the new `avatar_url` |
+| 56 | `DELETE /v1/me/avatar` | | `204` |
+| 57 | `GET /v1/customers` | | list of `{"id", "name"}`; any signed-in member, or an API key with `cases:read`, for pickers |
+
+```json
+Notification = { "id": "ntf_...", "kind": "case_assigned", "title": "PL-004 was assigned to you",
+                 "body": "Supplier shortfall", "case_id": "case_..." | null, "case_reference": "PL-004" | null,
+                 "link": "/cases/case_...", "read": false, "created_at": "..." }
+```
+
+- `kind` is one of:
+  - `evidence_processed`: your upload finished processing, failed, or needs review.
+  - `case_assigned`: a case was assigned to you.
+  - `case_in_review`: a case you can review has findings waiting.
+  - `report_ready`: a report you asked for is ready.
+  - `weekly_summary`: Monday summary of your open cases.
+- `link` is an app route. Open it when the notification is tapped, then mark it read (52).
+- Poll 51 with `?limit=1` (about once a minute) to update the bell's `unread_count`.
+- Notifications are kept for 90 days.
+
+**Profile photo.** Upload exactly like evidence: ask for a URL (54), `PUT` the bytes with `headers`, then `complete` (55). The server checks the file really is a PNG or JPEG, then re-encodes it as a JPEG of at most 512 × 512 px. Re-encoding strips metadata such as the GPS location in phone photos.
+
+**Changes to `Me` (1, 21):**
+
+- `avatar_url`: a short-lived link to the photo, or `null`. It expires after about 10 minutes, so fetch `/v1/me` again to get a fresh one.
+- `notification_preferences`: `{"evidence_processed": true, "case_assigned": true, "case_in_review": true, "report_ready": true, "weekly_summary": false, "push": true}`. Each kind switches that notification on or off. `push` controls whether it is also sent to registered devices (2). Update any subset with `PATCH /v1/me {"notification_preferences": {...}}`.
+
+**Change to `Case` (3–6):** a new `customer_name` field (string or `null`) sits next to `customer_id`.
