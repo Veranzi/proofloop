@@ -55,8 +55,8 @@ void main() {
 
       for (final route in signedInRoutes) {
         testWidgets('renders $route', (tester) async {
-          await tester.runAsync(() =>
-              AuthService.instance.signIn('alex@company.com', 'password123'));
+          await tester.runAsync(
+              () => AuthService.instance.signInWithProvider('google'));
           await show(tester, entry.value, route);
           expect(tester.takeException(), isNull);
           expect(find.byType(Scaffold), findsWidgets);
