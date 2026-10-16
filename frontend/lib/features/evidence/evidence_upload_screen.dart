@@ -4,11 +4,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../core/api_endpoints.dart';
-import '../../core/evidence_api.dart';
+import '../../core/api.dart';
 import '../../core/formatters.dart';
-import '../../core/mock_repository.dart';
 import '../../core/models.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/page_header.dart';
 
 // Must match the backend's allowlist and limit (Docs/backend_plan.md, Step 0).
@@ -33,11 +32,11 @@ class _PendingFile {
 
 /// Uploads evidence to a case.
 ///
-/// With the real API (`--dart-define=USE_API=true`) each file is uploaded in
-/// three steps: POST /v1/cases/{caseId}/evidence/upload-url (endpoint 7)
-/// returns a signed URL, the bytes are PUT straight to storage, then POST
+/// Each file is uploaded in three steps: POST
+/// /v1/cases/{caseId}/evidence/upload-url (endpoint 7) returns a signed URL,
+/// the bytes are PUT straight to storage, then POST
 /// /v1/cases/{caseId}/evidence/{evidenceId}/complete (endpoint 8) verifies
-/// the file and queues processing. Without the flag it runs on mock data.
+/// the file and queues processing.
 class EvidenceUploadScreen extends StatefulWidget {
   const EvidenceUploadScreen({super.key, this.initialCaseId});
 
@@ -48,7 +47,7 @@ class EvidenceUploadScreen extends StatefulWidget {
 }
 
 class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
-  final _api = EvidenceApi();
+  final _api = PrufloApi();
   final _files = <_PendingFile>[];
   String? _caseId;
   // Required: nothing is pre-selected, the user (or the picked files) decide.
@@ -57,28 +56,23 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
   bool _uploading = false;
   bool _dragging = false;
 
-  // Real API only.
-  List<CaseRef>? _apiCases;
-  List<EvidenceItem> _apiRecent = const [];
+  List<CaseItem>? _cases;
+  List<EvidenceItem> _recent = const [];
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    if (ApiEndpoints.useApi) {
-      _loadCases();
-    } else {
-      _caseId = widget.initialCaseId ?? MockRepository.instance.cases().first.id;
-    }
+    _loadCases();
   }
 
   Future<void> _loadCases() async {
+    setState(() => _loadError = null);
     try {
-      final cases = await _api.cases();
+      final (cases, _) = await _api.allCases(cap: 500);
       if (!mounted) return;
       setState(() {
-        _apiCases = cases;
-        _loadError = null;
+        _cases = cases;
         final initial = cases.where((c) =>
             c.id == widget.initialCaseId || c.reference == widget.initialCaseId);
         _caseId = initial.isNotEmpty
@@ -93,10 +87,10 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
 
   Future<void> _loadRecent() async {
     final caseId = _caseId;
-    if (!ApiEndpoints.useApi || caseId == null) return;
+    if (caseId == null) return;
     try {
-      final recent = await _api.evidence(caseId);
-      if (mounted && caseId == _caseId) setState(() => _apiRecent = recent);
+      final recent = await _api.evidence(caseId, limit: 6);
+      if (mounted && caseId == _caseId) setState(() => _recent = recent);
     } catch (_) {
       // The list is secondary; upload errors are shown where they happen.
     }
@@ -172,19 +166,15 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
         f.progress = 0.05;
       });
       try {
-        if (ApiEndpoints.useApi) {
-          await _api.upload(
-            caseId: caseId,
-            fileName: f.name,
-            bytes: await f.file.readAsBytes(),
-            evidenceTypes: [for (final t in _types) t.name],
-            onStep: (v) {
-              if (mounted) setState(() => f.progress = v);
-            },
-          );
-        } else {
-          await _simulateUpload(f, caseId);
-        }
+        await _api.upload(
+          caseId: caseId,
+          fileName: f.name,
+          bytes: await f.file.readAsBytes(),
+          evidenceTypes: [for (final t in _types) t.name],
+          onStep: (v) {
+            if (mounted) setState(() => f.progress = v);
+          },
+        );
         f.done = true;
         uploaded++;
       } catch (e) {
@@ -211,46 +201,15 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
     ));
   }
 
-  Future<void> _simulateUpload(_PendingFile f, String caseId) async {
-    for (var step = 1; step <= 10; step++) {
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      if (!mounted) return;
-      setState(() => f.progress = step / 10);
-    }
-    MockRepository.instance.addEvidence(EvidenceFile(
-      name: f.name,
-      sizeLabel: _formatBytes(f.bytes),
-      type: f.name.split('.').last.toUpperCase(),
-      uploadedAt: DateTime.now(),
-      caseId: caseId,
-    ));
-  }
-
   String _caseLabel(String caseId) {
-    final match = _apiCases?.where((c) => c.id == caseId);
+    final match = _cases?.where((c) => c.id == caseId);
     return match != null && match.isNotEmpty
         ? 'Case #${match.first.reference}'
-        : 'Case #$caseId';
+        : 'the case';
   }
 
-  List<DropdownMenuItem<String>> _caseItems() => ApiEndpoints.useApi
-      ? [
-          for (final c in _apiCases ?? const <CaseRef>[])
-            DropdownMenuItem(
-              value: c.id,
-              child: Text('Case #${c.reference} - ${c.title}'),
-            ),
-        ]
-      : [
-          for (final c in MockRepository.instance.cases())
-            DropdownMenuItem(
-              value: c.id,
-              child: Text('Case #${c.id} - ${c.title}'),
-            ),
-        ];
-
   Widget _caseField() {
-    if (ApiEndpoints.useApi && _loadError != null) {
+    if (_loadError != null) {
       return Row(
         children: [
           Expanded(
@@ -261,21 +220,30 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
         ],
       );
     }
-    if (ApiEndpoints.useApi && _apiCases == null) {
-      return const LinearProgressIndicator(minHeight: 2);
-    }
-    if (ApiEndpoints.useApi && _apiCases!.isEmpty) {
+    final cases = _cases;
+    if (cases == null) return const LinearProgressIndicator(minHeight: 2);
+    if (cases.isEmpty) {
       return const Text('No cases yet. Create a case first.',
           style: TextStyle(fontSize: 13, color: AppColors.textSecondary));
     }
     return DropdownButtonFormField<String>(
       initialValue: _caseId,
       isExpanded: true,
-      items: _caseItems(),
+      items: [
+        for (final c in cases)
+          DropdownMenuItem(
+            value: c.id,
+            child: Text('Case #${c.reference} - ${c.title}',
+                overflow: TextOverflow.ellipsis),
+          ),
+      ],
       onChanged: _uploading
           ? null
           : (v) {
-              setState(() => _caseId = v);
+              setState(() {
+                _caseId = v;
+                _recent = const [];
+              });
               _loadRecent();
             },
     );
@@ -380,22 +348,18 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
       title: 'Recent Uploads',
       child: Column(
         children: [
-          if (ApiEndpoints.useApi)
-            for (final e in _apiRecent)
-              _RecentRow(
-                name: e.fileName,
-                type: e.fileName.split('.').last.toUpperCase(),
-                detail: '${_formatBytes(e.sizeBytes)} · ${_statusLabel(e)}',
-                at: e.createdAt,
-              )
-          else
-            for (final e in MockRepository.instance.recentEvidence().take(6))
-              _RecentRow(
-                name: e.name,
-                type: e.type,
-                detail: '${e.sizeLabel} · ${e.type}',
-                at: e.uploadedAt,
-              ),
+          if (_recent.isEmpty)
+            const EmptyPanel(
+              icon: Icons.upload_file_outlined,
+              title: 'No files in this case yet',
+            ),
+          for (final e in _recent)
+            _RecentRow(
+              name: e.fileName,
+              type: e.type,
+              detail: '${formatBytes(e.sizeBytes)} · ${e.statusLabel}',
+              at: e.createdAt,
+            ),
         ],
       ),
     );
@@ -428,18 +392,6 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
     );
   }
 }
-
-String _statusLabel(EvidenceItem e) => switch (e.status) {
-      'queued' || 'extracting' || 'grounding' || 'reconciling' => 'Processing',
-      'processed' => 'Processed',
-      // e.g. a scan while OCR isn't set up: the file is kept, a person checks it.
-      'needs_review' => e.errorClass == 'ocr_not_configured'
-          ? 'Needs review (scanned, no OCR yet)'
-          : 'Needs review',
-      'failed_retryable' => 'Retrying',
-      'failed_terminal' => 'Failed',
-      _ => 'Uploading',
-    };
 
 class _DropZone extends StatelessWidget {
   const _DropZone({required this.onTap, this.highlighted = false});
@@ -523,7 +475,7 @@ class _PendingRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Text(_formatBytes(file.bytes),
+          Text(formatBytes(file.bytes),
               style:
                   const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           IconButton(
@@ -603,11 +555,4 @@ class _FileIcon extends StatelessWidget {
       child: Icon(icon, size: 18, color: color),
     );
   }
-}
-
-String _formatBytes(int bytes) {
-  if (bytes >= 1024 * 1024) {
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-  return '${(bytes / 1024).ceil()} KB';
 }

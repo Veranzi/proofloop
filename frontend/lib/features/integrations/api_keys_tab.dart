@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../core/auth_service.dart';
 import '../../core/formatters.dart';
 import '../../core/integration_models.dart';
-import '../../core/integrations_repository.dart';
+import '../../core/integrations_api.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/status_chip.dart';
 import 'integration_widgets.dart';
@@ -20,7 +20,10 @@ class ApiKeysTab extends StatefulWidget {
 }
 
 class _ApiKeysTabState extends State<ApiKeysTab> {
-  final _repo = IntegrationsRepository.instance;
+  final _api = IntegrationsApi();
+  late Future<List<ApiKey>> _future = _api.apiKeys();
+
+  void _reload() => setState(() => _future = _api.apiKeys());
 
   Future<void> _create() async {
     final result = await showDialog<(String, Set<ApiScope>)>(
@@ -29,12 +32,15 @@ class _ApiKeysTabState extends State<ApiKeysTab> {
     );
     if (result == null || !mounted) return;
     final (name, scopes) = result;
-    final (_, secret) = _repo.createApiKey(
-      name: name,
-      scopes: scopes,
-      createdBy: AuthService.instance.user?.name ?? '',
-    );
-    setState(() {});
+    final String secret;
+    try {
+      (_, secret) = await _api.createApiKey(name: name, scopes: scopes);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    _reload();
+    if (!mounted) return;
     await showSecretOnce(
       context,
       title: 'API key created',
@@ -55,12 +61,24 @@ class _ApiKeysTabState extends State<ApiKeysTab> {
       action: 'Revoke',
     );
     if (!ok) return;
-    setState(() => _repo.revokeApiKey(key.id));
+    try {
+      await _api.revokeApiKey(key.id);
+      _reload();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final keys = _repo.apiKeys();
+    return AsyncView<List<ApiKey>>(
+      future: _future,
+      onRetry: _reload,
+      builder: (context, keys) => _list(keys),
+    );
+  }
+
+  Widget _list(List<ApiKey> keys) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -145,7 +163,8 @@ class _ApiKeysTabState extends State<ApiKeysTab> {
                       TagList(k.scopes.map((s) => s.wire)),
                       const SizedBox(height: 6),
                       Text(
-                        'Created by ${k.createdBy} · ${timeAgo(k.createdAt)}'
+                        '${k.createdBy.isEmpty ? 'Created' : 'Created by ${k.createdBy}'}'
+                        ' · ${timeAgo(k.createdAt)}'
                         ' · ${k.lastUsedAt == null ? 'Never used' : 'Last used ${timeAgo(k.lastUsedAt!)}'}',
                         style: const TextStyle(
                           fontSize: 12,
@@ -212,7 +231,7 @@ class _CreateKeyDialogState extends State<_CreateKeyDialog> {
               children: [
                 LabeledField(
                   label: 'Name',
-                  hint: 'e.g. Odoo sync job',
+                  hint: 'e.g. ERP sync job',
                   controller: _name,
                   validator: (v) => Validators.required(v, 'Name'),
                 ),

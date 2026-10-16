@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../core/mock_repository.dart';
+import '../../core/api.dart';
+import '../../core/auth_service.dart';
+import '../../core/integration_models.dart';
+import '../../core/integrations_api.dart';
 import '../../core/models.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/status_chip.dart';
+import '../integrations/integration_widgets.dart';
 
 /// Admin console: users, roles and system settings.
 ///
 /// API (all under /v1/admin, admin role required): list users (24),
-/// invite (25), change role or disable (27). Admins manage access but do
-/// not see case evidence unless they are a member of that case.
+/// invite (25), change role or disable (26), remove (27).
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -20,59 +24,46 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  late final List<AppUser> _users =
-      List.of(MockRepository.instance.users());
+  final _api = PrufloApi();
+  late Future<List<OrgUser>> _users = _api.users();
+
+  void _reload() => setState(() => _users = _api.users());
 
   Future<void> _addUser() async {
-    final user = await showDialog<AppUser>(
+    final user = await showDialog<OrgUser>(
       context: context,
       builder: (_) => const _AddUserDialog(),
     );
     if (user == null || !mounted) return;
-    setState(() => _users.insert(0, user));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Invitation sent to ${user.email}')),
-    );
-  }
-
-  void _replace(AppUser old, AppUser updated) {
-    final i = _users.indexOf(old);
-    if (i >= 0) setState(() => _users[i] = updated);
-  }
-
-  int get _activeAdmins =>
-      _users.where((u) => u.role == UserRole.admin && u.active).length;
-
-  void _setRole(AppUser u, UserRole role) {
-    if (u.role == UserRole.admin && role != UserRole.admin && _activeAdmins == 1) {
-      _lastAdminWarning();
-      return;
-    }
-    _replace(u, _copy(u, role: role));
-  }
-
-  void _toggleActive(AppUser u) {
-    if (u.active && u.role == UserRole.admin && _activeAdmins == 1) {
-      _lastAdminWarning();
-      return;
-    }
-    _replace(u, _copy(u, active: !u.active));
-  }
-
-  void _lastAdminWarning() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('There must always be at least one active admin.'),
+    _reload();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          'Invited ${user.email}. They can sign in with this email address.'),
     ));
   }
 
-  AppUser _copy(AppUser u, {UserRole? role, bool? active}) => AppUser(
-        name: u.name,
-        email: u.email,
-        role: role ?? u.role,
-        active: active ?? u.active,
-        phone: u.phone,
-        jobTitle: u.jobTitle,
-      );
+  /// Role and status changes; the API refuses to remove the last active admin.
+  Future<void> _update(Future<void> Function() call) async {
+    try {
+      await call();
+      _reload();
+      // Your own role may have changed.
+      await AuthService.instance.refresh();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _remove(OrgUser u) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Remove ${u.displayName}?',
+      message: 'They lose access to this organisation and its cases. '
+          'Their past actions stay in the audit trail.',
+      action: 'Remove',
+    );
+    if (ok) await _update(() => _api.removeUser(u.id));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,10 +103,17 @@ class _AdminScreenState extends State<AdminScreen> {
                     height: 480,
                     child: TabBarView(
                       children: [
-                        _UsersTab(
-                          users: _users,
-                          onRole: _setRole,
-                          onToggleActive: _toggleActive,
+                        AsyncView<List<OrgUser>>(
+                          future: _users,
+                          onRetry: _reload,
+                          builder: (context, users) => _UsersTab(
+                            users: users,
+                            onRole: (u, role) => _update(
+                                () => _api.updateUser(u.id, role: role)),
+                            onToggleActive: (u) => _update(() =>
+                                _api.updateUser(u.id, active: !u.active)),
+                            onRemove: _remove,
+                          ),
                         ),
                         const _RolesTab(),
                         const _SystemTab(),
@@ -137,11 +135,13 @@ class _UsersTab extends StatelessWidget {
     required this.users,
     required this.onRole,
     required this.onToggleActive,
+    required this.onRemove,
   });
 
-  final List<AppUser> users;
-  final void Function(AppUser, UserRole) onRole;
-  final void Function(AppUser) onToggleActive;
+  final List<OrgUser> users;
+  final void Function(OrgUser, UserRole) onRole;
+  final void Function(OrgUser) onToggleActive;
+  final void Function(OrgUser) onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -150,6 +150,14 @@ class _UsersTab extends StatelessWidget {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         color: AppColors.textSecondary);
+
+    if (users.isEmpty) {
+      return const EmptyPanel(
+        icon: Icons.group_outlined,
+        title: 'No users yet',
+        message: 'Use Add User to invite people to this organisation.',
+      );
+    }
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -194,13 +202,13 @@ class _UsersTab extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(u.name,
+                            Text(u.displayName,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500)),
                             if (!wide)
-                              Text(u.email,
+                              Text('${u.email} · ${roleLabel(u.role)}',
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                       fontSize: 12,
@@ -228,13 +236,17 @@ class _UsersTab extends StatelessWidget {
                   flex: 2,
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: u.active
-                        ? const Pill('Active',
-                            foreground: AppColors.success,
-                            background: AppColors.successSoft)
-                        : const Pill('Inactive',
+                    child: !u.active
+                        ? const Pill('Inactive',
                             foreground: AppColors.danger,
-                            background: AppColors.dangerSoft),
+                            background: AppColors.dangerSoft)
+                        : u.signedIn
+                            ? const Pill('Active',
+                                foreground: AppColors.success,
+                                background: AppColors.successSoft)
+                            : const Pill('Invited',
+                                foreground: AppColors.warning,
+                                background: AppColors.warningSoft),
                   ),
                 ),
                 SizedBox(
@@ -242,9 +254,11 @@ class _UsersTab extends StatelessWidget {
                   child: PopupMenuButton<Object>(
                     tooltip: 'User actions',
                     icon: const Icon(Icons.more_vert, size: 18),
-                    onSelected: (v) => v is UserRole
-                        ? onRole(u, v)
-                        : onToggleActive(u),
+                    onSelected: (v) => switch (v) {
+                      UserRole r => onRole(u, r),
+                      'toggle' => onToggleActive(u),
+                      _ => onRemove(u),
+                    },
                     itemBuilder: (_) => [
                       for (final r in UserRole.values)
                         CheckedPopupMenuItem<Object>(
@@ -256,6 +270,10 @@ class _UsersTab extends StatelessWidget {
                       PopupMenuItem<Object>(
                         value: 'toggle',
                         child: Text(u.active ? 'Deactivate' : 'Activate'),
+                      ),
+                      const PopupMenuItem<Object>(
+                        value: 'remove',
+                        child: Text('Remove from organisation'),
                       ),
                     ],
                   ),
@@ -273,18 +291,24 @@ class _RolesTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Matches the permission table in Docs/backend_plan.md, which the API enforces.
     const roles = [
-      ('Investigator', 'Creates cases and uploads evidence.'),
-      ('Reviewer', 'Reviews findings and records the decision.'),
-      ('Admin', 'Manages users, roles and case access. No case content by default.'),
-      ('Viewer', 'Read-only access to assigned cases and reports.'),
+      ('Investigator',
+          'Creates and edits cases, uploads evidence, generates reports and exports.'),
+      ('Reviewer',
+          'Approves, rejects or marks findings pending, and generates reports.'),
+      ('Admin',
+          'Everything above for every case in the organisation, plus users, '
+              'integrations and settings.'),
+      ('Viewer', 'Read-only access to the cases they are added to.'),
     ];
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         for (final (name, description) in roles)
           ListTile(
-            leading: const Icon(Icons.shield_outlined, color: AppColors.primary),
+            leading:
+                const Icon(Icons.shield_outlined, color: AppColors.primary),
             title: Text(name),
             subtitle: Text(description),
           ),
@@ -293,22 +317,36 @@ class _RolesTab extends StatelessWidget {
   }
 }
 
-class _SystemTab extends StatelessWidget {
+class _SystemTab extends StatefulWidget {
   const _SystemTab();
 
   @override
+  State<_SystemTab> createState() => _SystemTabState();
+}
+
+class _SystemTabState extends State<_SystemTab> {
+  final _api = IntegrationsApi();
+  late Future<ProviderSettings> _future = _api.providers();
+
+  @override
   Widget build(BuildContext context) {
-    const settings = [
-      ('Region', 'Singapore (asia-southeast1)'),
-      ('Evidence retention', 'Set by the retention policy'),
-      ('Audit log', 'All admin and review actions are recorded'),
-    ];
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        for (final (label, value) in settings)
-          ListTile(title: Text(label), subtitle: Text(value)),
-      ],
+    return AsyncView<ProviderSettings>(
+      future: _future,
+      onRetry: () => setState(() => _future = _api.providers()),
+      builder: (context, p) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ListTile(
+              title: const Text('Processing region'),
+              subtitle: Text(regionLabel(p.region))),
+          ListTile(
+              title: const Text('OCR and AI'),
+              subtitle: Text('${p.ocr.label} · ${p.ai.label} (${p.model})')),
+          const ListTile(
+              title: Text('Audit log'),
+              subtitle: Text('All admin and review actions are recorded')),
+        ],
+      ),
     );
   }
 }
@@ -325,12 +363,34 @@ class _AddUserDialogState extends State<_AddUserDialog> {
   final _name = TextEditingController();
   final _email = TextEditingController();
   UserRole _role = UserRole.investigator;
+  bool _busy = false;
+  String? _error;
 
   @override
   void dispose() {
     _name.dispose();
     _email.dispose();
     super.dispose();
+  }
+
+  Future<void> _invite() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final user = await PrufloApi().inviteUser(
+        email: _email.text.trim(),
+        name: _name.text.trim(),
+        role: _role,
+      );
+      if (mounted) Navigator.of(context).pop(user);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -371,9 +431,16 @@ class _AddUserDialogState extends State<_AddUserDialog> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'They will get an email invitation to set up their account.',
+                'No email is sent. Tell them to sign in to Pruflo with this '
+                'email address.',
                 style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!,
+                    style:
+                        const TextStyle(fontSize: 13, color: AppColors.danger)),
+              ],
             ],
           ),
         ),
@@ -385,15 +452,8 @@ class _AddUserDialogState extends State<_AddUserDialog> {
         ),
         FilledButton(
           style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
-          onPressed: () {
-            if (!_formKey.currentState!.validate()) return;
-            Navigator.of(context).pop(AppUser(
-              name: _name.text.trim(),
-              email: _email.text.trim(),
-              role: _role,
-            ));
-          },
-          child: const Text('Send Invite'),
+          onPressed: _busy ? null : _invite,
+          child: Text(_busy ? 'Inviting…' : 'Invite'),
         ),
       ],
     );
