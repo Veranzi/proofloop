@@ -111,9 +111,8 @@ class _ProvidersTabState extends State<ProvidersTab> {
           const SizedBox(height: 12),
           const InfoBanner(
             'Documents are stored and processed in this region. Check that '
-            'the chosen OCR processor and model are offered there. Storing '
-            'Kenyan personal data outside Kenya is a cross-border transfer '
-            'under the Data Protection Act, 2019, so confirm safeguards first.',
+            'the chosen OCR processor and model are offered there before '
+            'switching.',
             warning: true,
           ),
           const SizedBox(height: 20),

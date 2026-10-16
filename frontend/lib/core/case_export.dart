@@ -13,7 +13,11 @@ class CaseExport {
 
   static Map<String, dynamic> sample(CaseItem c) => {
     'schema_version': '1.0',
-    'case': {'id': c.id, 'title': c.title, 'status': 'reviewed'},
+    'case': {
+      'id': c.id,
+      'title': c.title,
+      'status': CaseStatus.completed.wire,
+    },
     'generated_at': DateTime.now().toUtc().toIso8601String(),
     'findings': [
       {
@@ -26,7 +30,7 @@ class CaseExport {
         'observed': {'value': '80', 'unit': 'units'},
         'difference': {'value': '20', 'unit': 'units'},
         'review': {
-          'status': 'confirmed',
+          'status': ReviewDecision.approve.wire,
           'by': 'Sarah Johnson',
           'at': DateTime.now().toUtc().toIso8601String(),
           'note': 'Supplier confirmed 20 units back-ordered.',

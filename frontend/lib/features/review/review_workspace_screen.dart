@@ -65,7 +65,7 @@ class _ReviewWorkspaceScreenState extends State<ReviewWorkspaceScreen> {
 
   void _saveDecision() {
     if (_decision == null) return;
-    // Reject and "needs more info" must explain why, for the audit trail.
+    // Reject and pending must explain why, for the audit trail.
     if (_decision != ReviewDecision.approve && _notes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Add a note explaining this decision first.'),
@@ -214,7 +214,7 @@ class _ReviewWorkspaceScreenState extends State<ReviewWorkspaceScreen> {
 String _decisionLabel(ReviewDecision d) => switch (d) {
       ReviewDecision.approve => 'Approve',
       ReviewDecision.reject => 'Reject',
-      ReviewDecision.needsMoreInfo => 'Needs More Info',
+      ReviewDecision.pending => 'Pending',
     };
 
 class _CaseHeader extends StatelessWidget {

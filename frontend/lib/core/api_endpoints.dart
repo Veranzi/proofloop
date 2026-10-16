@@ -26,6 +26,8 @@ class ApiEndpoints {
   // Evidence
   static String uploadUrl(String caseId) =>
       '/v1/cases/$caseId/evidence/upload-url'; // 7 POST
+  static String evidenceComplete(String caseId, String evidenceId) =>
+      '/v1/cases/$caseId/evidence/$evidenceId/complete'; // 8 POST
   static String evidence(String caseId) =>
       '/v1/cases/$caseId/evidence'; // 9 GET
   static String evidenceRetry(String caseId, String evidenceId) =>

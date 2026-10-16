@@ -7,10 +7,13 @@ import '../../core/mock_repository.dart';
 import '../../core/models.dart';
 import '../../widgets/page_header.dart';
 
-const _allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'mp4', 'docx', 'xlsx'];
-const _maxBytes = 100 * 1024 * 1024; // 100 MB, as stated in the drop zone
+// Must match the backend's allowlist and limit (Docs/backend_plan.md, Step 0).
+const _allowedExtensions = [
+  'pdf', 'docx', 'xlsx', 'csv', 'txt', 'jpg', 'jpeg', 'png', 'tif', 'tiff',
+];
+const _maxBytes = 25 * 1024 * 1024; // 25 MB, as stated in the drop zone
 
-enum _EvidenceType { documents, images, videos, other }
+enum _EvidenceType { documents, images, other }
 
 /// A file the user picked, with its upload progress.
 class _PendingFile {
@@ -25,8 +28,9 @@ class _PendingFile {
 ///
 /// With the real API each file is uploaded in two steps: POST
 /// /v1/cases/{caseId}/evidence/upload-url (endpoint 7) returns a V4 signed
-/// URL, then the bytes are PUT straight to Cloud Storage (endpoint 8). The
-/// upload-complete event queues processing through Pub/Sub.
+/// URL, then the bytes are PUT straight to Cloud Storage. POST
+/// /v1/cases/{caseId}/evidence/{evidenceId}/complete (endpoint 8) then
+/// verifies the file and queues processing through Pub/Sub.
 class EvidenceUploadScreen extends StatefulWidget {
   const EvidenceUploadScreen({super.key, this.initialCaseId});
 
@@ -59,9 +63,8 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
   /// Picking a file ticks its type, so mixed uploads are labelled for free.
   _EvidenceType _typeForFile(String name) =>
       switch (name.split('.').last.toLowerCase()) {
-        'pdf' || 'docx' || 'xlsx' => _EvidenceType.documents,
-        'jpg' || 'jpeg' || 'png' => _EvidenceType.images,
-        'mp4' => _EvidenceType.videos,
+        'pdf' || 'docx' || 'xlsx' || 'csv' || 'txt' => _EvidenceType.documents,
+        'jpg' || 'jpeg' || 'png' || 'tif' || 'tiff' => _EvidenceType.images,
         _ => _EvidenceType.other,
       };
 
@@ -88,7 +91,7 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
     });
     if (rejected.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Over 100 MB, not added: ${rejected.join(', ')}'),
+        content: Text('Over 25 MB, not added: ${rejected.join(', ')}'),
       ));
     }
   }
@@ -192,7 +195,6 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
                         Text(switch (t) {
                           _EvidenceType.documents => 'Documents',
                           _EvidenceType.images => 'Images',
-                          _EvidenceType.videos => 'Videos',
                           _EvidenceType.other => 'Other',
                         }),
                       ],
@@ -286,7 +288,7 @@ class _DropZone extends StatelessWidget {
             Text('or click to browse',
                 style: TextStyle(color: AppColors.primary, fontSize: 13)),
             SizedBox(height: 8),
-            Text('Supports: PDF, JPG, PNG, MP4, DOCX (Max 100MB)',
+            Text('Supports: PDF, DOCX, XLSX, CSV, TXT, JPG, PNG, TIFF (Max 25MB)',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           ],

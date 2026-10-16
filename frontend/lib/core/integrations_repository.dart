@@ -16,8 +16,7 @@ class IntegrationsRepository {
 
   static const regions = [
     ProcessingRegion('asia-southeast1', 'Singapore (asia-southeast1)'),
-    ProcessingRegion('africa-south1', 'Johannesburg (africa-south1)'),
-    ProcessingRegion('europe-west1', 'Belgium (europe-west1)'),
+    ProcessingRegion('asia-southeast2', 'Jakarta (asia-southeast2)'),
   ];
 
   late final List<ApiKey> _keys = [
@@ -46,7 +45,7 @@ class IntegrationsRepository {
       id: 'wh_01',
       url: 'https://erp.example.com/hooks/pruflo',
       description: 'ERP exception queue',
-      events: {WebhookEvent.caseReviewRequired, WebhookEvent.findingDecided},
+      events: {WebhookEvent.caseInReview, WebhookEvent.findingDecided},
       createdAt: _now.subtract(const Duration(days: 9)),
       deliveries: [
         WebhookDelivery(
@@ -55,7 +54,7 @@ class IntegrationsRepository {
           at: _now.subtract(const Duration(hours: 1)),
         ),
         WebhookDelivery(
-          event: WebhookEvent.caseReviewRequired,
+          event: WebhookEvent.caseInReview,
           statusCode: 503,
           attempt: 2,
           at: _now.subtract(const Duration(hours: 4)),

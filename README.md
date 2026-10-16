@@ -1,6 +1,6 @@
 # PruFlo
 
-Asynchronous evidence processing with human-controlled decisions, on Google Cloud (asia-southeast1).
+Asynchronous evidence processing with human-controlled decisions, on Google Cloud (asia-southeast1, Singapore).
 
 > Core invariant: software calculates and validates; AI extracts or explains; an authorized human makes the substantive decision.
 

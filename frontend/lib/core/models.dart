@@ -1,10 +1,27 @@
-enum CaseStatus { inReview, awaitingEvidence, completed }
+/// Case lifecycle. `wire` is the value the API sends and stores.
+enum CaseStatus {
+  awaitingEvidence('awaiting_evidence'),
+  inReview('in_review'),
+  completed('completed');
+
+  const CaseStatus(this.wire);
+  final String wire;
+}
 
 enum Priority { high, medium, low }
 
 enum UserRole { investigator, reviewer, admin, viewer }
 
-enum ReviewDecision { approve, reject, needsMoreInfo }
+/// A reviewer's decision on a finding. Every finding starts as `pending`.
+/// `wire` is the value the API sends and stores.
+enum ReviewDecision {
+  approve('approve'),
+  reject('reject'),
+  pending('pending');
+
+  const ReviewDecision(this.wire);
+  final String wire;
+}
 
 class CaseItem {
   const CaseItem({
@@ -39,7 +56,7 @@ class EvidenceFile {
 
   final String name;
   final String sizeLabel;
-  final String type; // PDF, JPG, MP4, XLSX ...
+  final String type; // PDF, DOCX, XLSX, CSV, JPG ...
   final DateTime uploadedAt;
   final String? caseId;
 }
