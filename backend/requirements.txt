@@ -1,2 +1,9 @@
-fastapi
-uvicorn[standard]
+alembic==1.16.5
+fastapi==0.118.0
+firebase-admin==7.1.0
+google-cloud-pubsub==2.31.1
+google-cloud-storage==3.4.0
+psycopg[binary]==3.2.10
+pydantic-settings==2.11.0
+sqlalchemy==2.0.43
+uvicorn[standard]==0.37.0
