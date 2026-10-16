@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -281,6 +282,12 @@ def test_invite_then_sign_in_as_admin(client: TestClient, make: Factory, db: Ses
     assert res.status_code == 200
     assert res.json()["role"] == "admin" and res.json()["tenant_id"] == tenant.id
 
+    from app.errors import ApiError
+
+    with pytest.raises(ApiError, match="at least one active admin"):
+        invite(db, tenant.id, "new.admin@example.com", Role.REVIEWER)  # the only admin
+    db.rollback()
+    make.person(Role.ADMIN, tenant)
     invite(db, tenant.id, "new.admin@example.com", Role.REVIEWER)  # changes the role
     res = client.get(
         "/v1/me", headers={"Authorization": "Bearer dev:fb_admin:new.admin@example.com"}

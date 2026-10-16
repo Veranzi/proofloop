@@ -1,9 +1,13 @@
 alembic==1.16.5
+cryptography==50.0.2
+email-validator==2.3.0
 fastapi==0.118.0
 firebase-admin==7.1.0
+fpdf2==2.8.4
 google-cloud-documentai==3.6.0
 google-cloud-pubsub==2.31.1
 google-cloud-storage==3.4.0
+httpx==0.28.1
 openpyxl==3.1.5
 pdfplumber==0.11.7
 psycopg[binary]==3.2.10
