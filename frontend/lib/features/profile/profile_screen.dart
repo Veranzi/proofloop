@@ -212,6 +212,26 @@ class _SecurityTab extends StatelessWidget {
             child: const Text('Send link'),
           ),
         ),
+        // Phones have no sidebar, so admins reach these pages from here.
+        if (AuthService.instance.isAdmin) ...[
+          const Divider(height: 32),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.admin_panel_settings_outlined),
+            title: const Text('Admin'),
+            subtitle: const Text('Users, roles and system settings'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/admin'),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.hub_outlined),
+            title: const Text('Integrations'),
+            subtitle: const Text('API keys, webhooks, sources and rules'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.go('/integrations'),
+          ),
+        ],
         const Divider(height: 32),
         ListTile(
           contentPadding: EdgeInsets.zero,

@@ -22,6 +22,8 @@ const _sidebarItems = [
   _NavItem('Profile', Icons.person_outline, '/profile'),
   _NavItem('Admin', Icons.admin_panel_settings_outlined, '/admin',
       adminOnly: true),
+  _NavItem('Integrations', Icons.hub_outlined, '/integrations',
+      adminOnly: true),
 ];
 
 // Phones get the five tabs shown in the mobile mockups.
@@ -142,16 +144,19 @@ class _Sidebar extends StatelessWidget {
                                 ? Colors.white
                                 : Colors.white.withValues(alpha: 0.7)),
                         const SizedBox(width: 12),
-                        Text(
-                          items[i].label,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: i == selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            color: i == selected
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.75),
+                        Flexible(
+                          child: Text(
+                            items[i].label,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: i == selected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: i == selected
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.75),
+                            ),
                           ),
                         ),
                       ],

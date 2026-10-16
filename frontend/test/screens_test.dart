@@ -29,6 +29,7 @@ void main() {
     '/reports',
     '/profile',
     '/admin',
+    '/integrations',
   ];
 
   Future<void> show(WidgetTester tester, Size size, String route) async {

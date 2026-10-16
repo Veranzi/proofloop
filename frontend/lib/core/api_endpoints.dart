@@ -59,4 +59,25 @@ class ApiEndpoints {
   static String adminCaseMembers(String caseId) =>
       '/v1/admin/cases/$caseId/members'; // 31 GET, 32 PUT
   static const adminAudit = '/v1/admin/audit'; // 33 GET
+
+  // Integrations (admin). Contract: Docs/Integrations_API_Contract.md
+  static const apiKeys = '/v1/admin/api-keys'; // 34 GET, 35 POST
+  static String apiKey(String id) => '/v1/admin/api-keys/$id'; // 36 DELETE
+  static const webhooks = '/v1/admin/webhooks'; // 37 GET, 38 POST
+  static String webhook(String id) =>
+      '/v1/admin/webhooks/$id'; // 39 PATCH, 40 DELETE
+  static String webhookTest(String id) =>
+      '/v1/admin/webhooks/$id/test'; // 41 POST
+  static String webhookDeliveries(String id) =>
+      '/v1/admin/webhooks/$id/deliveries'; // 42 GET
+  static const connectors = '/v1/admin/connectors'; // 43 GET
+  static String connector(String kind) =>
+      '/v1/admin/connectors/$kind'; // 44 PUT, 45 DELETE
+  static const rules = '/v1/admin/rules'; // 46 GET
+  static String rule(String id) => '/v1/admin/rules/$id'; // 47 PATCH
+  static const providers = '/v1/admin/providers'; // 48 GET, 49 PUT
+
+  // Machine-readable export of findings: ?format=json|csv
+  static String caseExport(String caseId) =>
+      '/v1/cases/$caseId/export'; // 50 GET
 }
