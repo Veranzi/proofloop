@@ -9,6 +9,42 @@ Where this plan differs from the report (region, endpoint paths, review decision
 
 Endpoint numbers (1–50) and paths are the ones in `frontend/lib/core/api_endpoints.dart`. The frontend currently runs on mock data (`mock_repository.dart`, `integrations_repository.dart`). Each endpoint we ship replaces one mock method, and the screens stay the same.
 
+## Progress
+
+Last updated 2026-10-16. Status is judged against each step's **Done when** line.
+
+✅ done · 🟠 partly done · ❌ not started
+
+| Step | Status | Notes |
+| --- | --- | --- |
+| 0 Decisions | ✅ | Region, endpoint paths, review decisions, case statuses, roles, file limits |
+| 1 Foundation | ✅ | Settings, error envelope, request IDs, JSON logs, paging, Docker services, CI workflow |
+| 2 Database | 🟠 | All tables and migrations; separate database roles still to do |
+| 3 GCP environment | ❌ | Needs access to the GCP project |
+| 4 Authentication | 🟠 | Done locally; real Firebase tokens not yet tested |
+| 5 Cases | ✅ | Endpoints 3–6 and 16 |
+| 6 Evidence upload | 🟠 | Endpoints 7–11 and the Flutter upload screen; Pub/Sub publishing still to do |
+| 7 Worker | ❌ | Next up. Uploaded files stay at `queued` until this exists |
+| 8 Text extraction | ❌ | |
+| 9 Gemini extraction | ❌ | Needs Vertex AI in the GCP project |
+| 10 Grounding | ❌ | |
+| 11 Rule engine | ❌ | |
+| 12 Explanations | ❌ | |
+| 13 Human review | ❌ | |
+| 14 Reports and export | ❌ | |
+| 15 Admin | ❌ | Until then, people are invited with `python -m app.cli invite` |
+| 16 Integrations | 🟠 | API keys (34–36) done in Step 4; webhooks, connectors and providers not started |
+| 17 Hardening | ❌ | |
+| 18 Case Q&A (optional) | ❌ | |
+
+Built along the way, not in the original steps:
+
+- `python -m app.cli` commands: `bootstrap`, `invite` and `remove-user`.
+- Local storage that stands in for Cloud Storage when `PRUFLO_ENV` is `local` or `test`.
+- CORS for `pruflo.web.app` and local development.
+- The Flutter upload screen calls the API when built with `--dart-define=USE_API=true`.
+- Cases have an internal `id` (`case_...`) and a `reference` people see (`PL-001`).
+
 ## The rule everything follows
 
 **Code calculates, AI reads documents and drafts wording, and people decide.**
@@ -48,7 +84,7 @@ The API and the worker share one codebase but run as **two separate Cloud Run se
 
 ---
 
-## Step 0: decisions (settled)
+## ✅ Step 0: decisions (settled)
 
 These are fixed. The frontend, the contract and the backend all use exactly these values.
 
@@ -144,7 +180,10 @@ API keys use scopes instead of roles and can never record a decision or call `/v
 
 **Still to confirm:** retention periods for evidence, reports and logs.
 
-## Step 1: project foundation
+## ✅ Step 1: project foundation
+
+> **Status:** done. The GitHub Actions check runs once the `backend` branch is pushed.
+
 
 - Split `app/` into the layout above, with settings loaded from environment variables (later from Secret Manager).
 - Create `app/enums.py` with `CaseStatus`, `ReviewDecision` and `Role`, using the Step 0 wire values. Every model, schema and test imports from it; nothing else defines these strings.
@@ -155,7 +194,10 @@ API keys use scopes instead of roles and can never record a decision or call `/v
 
 **Done when:** `docker compose up` plus `pytest` pass locally and in CI.
 
-## Step 2: database schema and migrations
+## 🟠 Step 2: database schema and migrations
+
+> **Status:** all 24 tables, constraints and migrations are done; `review_actions` and `audit_events` are append-only through database triggers. **Left:** separate migration and runtime database roles (do this with Step 3).
+
 
 Create the schema in Alembic, using `NUMERIC` for money and quantities, UUID primary keys, foreign keys and indexes on `case_id`, `evidence_id`, `status`, `created_at` and `rule_id`. Enum columns use check constraints with the Step 0 values.
 
@@ -177,7 +219,7 @@ Create the schema in Alembic, using `NUMERIC` for money and quantities, UUID pri
 
 **Done when:** migrations apply cleanly to an empty database and roll back, and there are tests for the main constraints.
 
-## Step 3: GCP dev environment in `asia-southeast1`
+## ❌ Step 3: GCP dev environment in `asia-southeast1`
 
 Set this up early so that each later step can be deployed and shown:
 
@@ -189,7 +231,10 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** `/healthz` responds from Cloud Run, and the Flutter build with `--dart-define=API_BASE_URL=...` can reach it.
 
-## Step 4: authentication and permissions
+## 🟠 Step 4: authentication and permissions
+
+> **Status:** done: Firebase and App Check verification code, invite-only access, API keys with rate limits, the permission table, and endpoints 1, 2, 21–23 and 34–36. **Left:** verify against real Firebase tokens once a Firebase project is connected (local development uses `dev:` tokens); the export and decision routes this step guards come in Steps 13 and 14.
+
 
 - **People:** verify the Firebase ID token server-side with firebase-admin, then verify the App Check token from `X-Firebase-AppCheck`. User identity always comes from the verified token, never from the request body.
 - **Systems:** `Authorization: Bearer pf_live_...`. Spot the prefix, look up the key by its SHA-256 hash, and apply the key's tenant and scopes. Rate-limit each key and return `429`.
@@ -198,12 +243,15 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** tests show that a user who isn't a member of a case can't read anything in it (including signed URLs), a `viewer` gets `403` on export, and an API key can't record a decision.
 
-## Step 5: cases
+## ✅ Step 5: cases
 
 - **Endpoints:** 3 list (filter by status), 4 create (starts as `awaiting_evidence`), 5 get, 6 update, 16 timeline (built from audit events).
 - One `transition_case(case, new_status)` function enforces the Step 0 rules and writes the audit event.
 
-## Step 6: evidence upload
+## 🟠 Step 6: evidence upload
+
+> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server and get a job and an outbox event. **Left:** the outbox dispatcher that publishes to Pub/Sub (built with Step 7), and Cloud Storage signed URLs tested against a real bucket (Step 3).
+
 
 1. Endpoint **7** `upload-url`: check permission and the declared extension and size against the Step 0 limits, create an `evidence_files` row, and return a short-lived V4 signed PUT URL for an object key **the server chooses**. The URL is bound to the size limit.
 2. The client uploads straight to Cloud Storage.
@@ -215,7 +263,7 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a file can be uploaded from the Flutter app, the evidence row shows `queued`, and a message reaches Pub/Sub.
 
-## Step 7: worker and processing pipeline skeleton
+## ❌ Step 7: worker and processing pipeline skeleton
 
 - Pub/Sub pushes to an **authenticated** Cloud Run worker endpoint, which can't be reached from the public internet.
 - The worker is idempotent. It works from a `processing_jobs` row with a unique idempotency key, so a redelivered message never duplicates claims, findings or audit rows.
@@ -225,7 +273,7 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a test that delivers the same message twice produces exactly one set of results.
 
-## Step 8: text extraction
+## ❌ Step 8: text extraction
 
 - **Native parsers first** (cheap, in-region, exact): the PDF text layer, DOCX, XLSX (sheet, row and column kept as the anchor), CSV and TXT.
 - **OCR** only for images and PDF pages that have no text layer, through the `OcrProvider` interface (contract §5) with the **Google Document AI** adapter.
@@ -233,7 +281,7 @@ Set this up early so that each later step can be deployed and shown:
 - Record the parser or processor name and version on every page.
 - **Endpoint:** 12 anchors (page text and boxes for the review overlay).
 
-## Step 9: claim extraction with Gemini
+## ❌ Step 9: claim extraction with Gemini
 
 - Define the `ClaimExtractor` interface and the **Vertex Gemini** adapter, with the model ID read from configuration and checked against an allowlist.
 - Send only the text that's needed. Give Gemini a strict JSON schema to fill: `field_name, raw_value, normalized_value, source_quote, page_hint, extraction_status`, plus a reason when it can't find a value.
@@ -241,7 +289,7 @@ Set this up early so that each later step can be deployed and shown:
 - Save the model, prompt version, schema version, provider and region on every claim.
 - **Endpoint:** 13 claims.
 
-## Step 10: grounding
+## ❌ Step 10: grounding
 
 - Search for each quote in the page (or sheet) text it claims to come from first, normalizing only whitespace and line-wrap differences.
 - One match makes the claim `grounded`, with the span and bounding box attached. Several matches make it `ambiguous`, and no match makes it `ungrounded`; either way it goes to `needs_review`.
@@ -249,7 +297,7 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** golden tests pass for exact, missing and ambiguous quotes.
 
-## Step 11: rule engine
+## ❌ Step 11: rule engine
 
 - Write the four templates from the contract as versioned Python rules with declared inputs, units and parameters: `quantity_shortfall`, `amount_mismatch`, `delivery_date_window` and `missing_document`.
 - Incompatible units or currencies produce a data-quality issue, never a silent conversion. `missing_document` reports "no matching evidence found", which is not the same as proof that the delivery never happened.
@@ -258,19 +306,19 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** ordered=100 and delivered=80 gives a shortfall of 20, with no LLM involved.
 
-## Step 12: explanations
+## ❌ Step 12: explanations
 
 - The default is a **deterministic template** ("The purchase order lists 100 units; the delivery note records 80.").
 - An optional Gemini rewrite may use only the finding's own values and quotes. It is labeled `machine_generated`.
 
-## Step 13: human review
+## ❌ Step 13: human review
 
 - Endpoint **15** `decision`: body `{ "decision": "approve" | "reject" | "pending", "note": "...", "correction": { "field", "previous", "new" }? }`. `reject` and `pending` require a note. Allowed for reviewers and admins only; people only, never API keys.
 - Each decision is an append-only `review_actions` row plus an audit event, and it updates `findings.review_status`.
 - When no finding in the case is `pending`, the case moves to `completed`. A finding set back to `pending` moves a completed case back to `in_review`.
 - Fires the `finding.decided` and `case.completed` outbox events.
 
-## Step 14: reports and export
+## ❌ Step 14: reports and export
 
 - Allowed for **investigators, reviewers and admins** who are members of the case. Viewers get `403`.
 - Endpoints **17** and **18**: queue a report and list reports. The worker renders an HTML template to PDF with WeasyPrint, built only from stored claims, findings and review actions, then saves it to the bucket.
@@ -280,11 +328,13 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** the export output matches the shapes the frontend's `integrations_test.dart` checks.
 
-## Step 15: admin
+## ❌ Step 15: admin
 
 Endpoints **24–33**: users (list, invite, change role, disable), customers, case members, and the audit log viewer. Every change is audited.
 
-## Step 16: integrations
+## 🟠 Step 16: integrations
+
+> **Status:** API keys (34–36) are done as part of Step 4. Webhooks, connectors and providers are not started.
 
 Build in this order (from the contract):
 
@@ -292,7 +342,7 @@ Build in this order (from the contract):
 2. **Connectors**, 43–45: the email inbox first, then Odoo, then Google Drive and SharePoint (OAuth). Imported files go through **the same path and limits** as a manual upload (Step 6). Credentials are never returned.
 3. **Providers**, 48–49: read-only at first, returning the defaults (`google_document_ai`, `vertex_gemini`, `asia-southeast1`). Before saving a change, check that an adapter exists, that the model is on the allowlist and that it's offered in the chosen region.
 
-## Step 17: production hardening
+## ❌ Step 17: production hardening
 
 - Cloud Monitoring dashboards and alerts for queue age, processing time, worker failures, OCR and model errors, database connections and cost anomalies.
 - Cloud SQL backups kept in-region, plus a restore drill that has actually been run.
@@ -301,7 +351,7 @@ Build in this order (from the contract):
 - Separate staging and production environments, deployments that record the commit and image digest, and a rollback procedure.
 - A data protection impact assessment before any real documents are used.
 
-## Step 18 (optional): case Q&A
+## ❌ Step 18 (optional): case Q&A
 
 Endpoint **20**: a read-only assistant with three narrow tools (`get_findings`, `get_claims`, `get_timeline`). Every answer cites finding or claim IDs. It has no write tools, and the core workflow never depends on it.
 
@@ -309,13 +359,15 @@ Endpoint **20**: a read-only assistant with three narrow tools (`get_findings`, 
 
 ## Milestones
 
-| Milestone | Steps | Matches report phase | What you can show |
-| --- | --- | --- | --- |
-| **M1 Vertical slice** | 0–6, 11 (shortfall rule only), 13, 14 (simple PDF) | Phase 1 | Create a case → upload synthetic documents → see the 20-unit shortfall → approve it → export PDF |
-| **M2 Robust ingestion** | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
-| **M3 Grounded AI** | 9, 10, 12 | Phase 3 | Values come from Gemini with source highlights; uncertain ones are flagged |
-| **M4 Review and audit** | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
-| **M5 Hardening** | 16 (connectors), 17 | Phase 5 | Monitoring, backups, staging and production |
+| Milestone | Status | Steps | Matches report phase | What you can show |
+| --- | --- | --- | --- | --- |
+| **M1 Vertical slice** | 🟠 | 0–6, 11 (shortfall rule only), 13, 14 (simple PDF) | Phase 1 | Create a case → upload synthetic documents → see the 20-unit shortfall → approve it → export PDF |
+| **M2 Robust ingestion** | ❌ | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
+| **M3 Grounded AI** | ❌ | 9, 10, 12 | Phase 3 | Values come from Gemini with source highlights; uncertain ones are flagged |
+| **M4 Review and audit** | ❌ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
+| **M5 Hardening** | ❌ | 16 (connectors), 17 | Phase 5 | Monitoring, backups, staging and production |
+
+M1 is partly done: Steps 0, 1 and 5 are complete, and 2, 4 and 6 are mostly done. Step 3 (GCP), the shortfall rule, review and PDF export are still to build.
 
 For M1, claims can come from hand-labelled synthetic documents, so the demo works before the Gemini step exists.
 
