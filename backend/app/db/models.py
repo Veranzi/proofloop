@@ -354,6 +354,8 @@ class Report(Timestamped, Base):
     title: Mapped[str] = mapped_column(String(200), server_default="")
     object_key: Mapped[str | None] = mapped_column(String(300))
     template_version: Mapped[str] = mapped_column(String(40))
+    # What was asked for, e.g. {"type": "detailed", "sections": ["evidence", "findings"]}.
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
     sha256: Mapped[str | None] = mapped_column(String(64))
     requested_by: Mapped[str | None] = mapped_column(_fk("users.id"))
     completed_at: Mapped[datetime | None] = mapped_column(TZ)

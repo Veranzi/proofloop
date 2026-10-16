@@ -87,12 +87,15 @@ def handle_event(
     db: Session, storage: Storage, ocr: OcrProvider | None, event_type: str, payload: dict[str, Any]
 ) -> str:
     """Route one message to its job. Raises RetryLater to be redelivered."""
-    from app.worker.jobs import run_processing_job
+    from app.services.reports import GENERATE_REPORT
+    from app.worker.jobs import run_processing_job, run_report_job
 
     if event_type == PROCESS_EVIDENCE:
         return run_processing_job(
             db, storage, ocr, str(payload["evidence_id"]), str(payload["job_id"])
         )
+    if event_type == GENERATE_REPORT:
+        return run_report_job(db, storage, str(payload["report_id"]))
     logger.warning("ignoring unknown event type %s", event_type)
     return "skipped"
 

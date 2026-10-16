@@ -8,7 +8,7 @@ duplicates pages, audit events or webhooks.
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, delete, or_, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import DocumentPage, EvidenceFile, ProcessingJob, TextBlock
@@ -208,3 +208,74 @@ def _retryable(db: Session, evidence_id: str, job_id: str, code: str) -> None:
         evidence.status = EvidenceStatus.FAILED_RETRYABLE
         evidence.error_class = code
     _finish_job(db, job_id, JobStatus.FAILED_RETRYABLE, code)
+
+
+def run_report_job(db: Session, storage: Storage, report_id: str) -> str:
+    """Render a queued report to PDF and store it. Idempotent: ready reports are skipped."""
+    from hashlib import sha256
+
+    from app.db.models import Case, Report
+    from app.enums import ReportStatus
+    from app.reports.pdf import render
+    from app.services import reports as report_service
+
+    report = db.scalar(
+        select(Report).where(Report.id == report_id).with_for_update(skip_locked=True)
+    )
+    if report is None or report.status != ReportStatus.QUEUED:
+        return "skipped"
+    case = db.get(Case, report.case_id)
+    if case is None:
+        return "skipped"
+    try:
+        evidence = db.scalars(
+            select(EvidenceFile)
+            .where(EvidenceFile.case_id == case.id, EvidenceFile.status != EvidenceStatus.UPLOADING)
+            .order_by(EvidenceFile.created_at)
+        ).all()
+        pdf = render(
+            case,
+            report.options,
+            list(evidence),
+            report_service.export_data(db, case),
+            report_service.timeline(db, case),
+        )
+        key = f"tenants/{case.tenant_id}/cases/{case.id}/reports/{report.id}.pdf"
+        try:
+            storage.write(key, pdf, "application/pdf")
+        except Exception as exc:
+            raise TransientError("storage_unavailable", str(exc)) from exc
+    except TransientError:
+        db.rollback()
+        raise RetryLater(f"report {report_id}") from None
+    except Exception:
+        db.rollback()
+        logger.exception("report failed", extra={"case_id": case.id})
+        report = db.get(Report, report_id)
+        if report is not None:
+            report.status = ReportStatus.FAILED
+            report.completed_at = datetime.now(UTC)
+            db.commit()
+        return "failed"
+    report.object_key = key
+    report.sha256 = sha256(pdf).hexdigest()
+    report.status = ReportStatus.READY
+    report.completed_at = datetime.now(UTC)
+    audit.record_system(
+        db,
+        case.tenant_id,
+        "report.ready",
+        "report",
+        report.id,
+        case_id=case.id,
+        details={"title": f"{report.title} is ready"},
+    )
+    outbox.emit(
+        db,
+        case.tenant_id,
+        "webhook",
+        WebhookEvent.REPORT_READY.value,
+        {"case_id": case.id, "report_id": report.id, "format": report.format},
+    )
+    db.commit()
+    return "done"
