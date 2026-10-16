@@ -11,7 +11,7 @@ Endpoint numbers (1–50) and paths are the ones in `frontend/lib/core/api_endpo
 
 ## Progress
 
-Last updated 2026-10-16. Status is judged against each step's **Done when** line.
+Last updated 2026-10-16 (Steps 7 and 8). Status is judged against each step's **Done when** line.
 
 ✅ done · 🟠 partly done · ❌ not started
 
@@ -23,9 +23,9 @@ Last updated 2026-10-16. Status is judged against each step's **Done when** line
 | 3 GCP environment | ❌ | Needs access to the GCP project |
 | 4 Authentication | 🟠 | Done locally; real Firebase tokens not yet tested |
 | 5 Cases | ✅ | Endpoints 3–6 and 16 |
-| 6 Evidence upload | 🟠 | Endpoints 7–11 and the Flutter upload screen; Pub/Sub publishing still to do |
-| 7 Worker | ❌ | Next up. Uploaded files stay at `queued` until this exists |
-| 8 Text extraction | ❌ | |
+| 6 Evidence upload | 🟠 | Endpoints 7–11, the Flutter upload screen and outbox publishing; real Cloud Storage bucket needs Step 3 |
+| 7 Worker | ✅ | Idempotent jobs, retries, outbox → Pub/Sub, push endpoint; runs inline locally |
+| 8 Text extraction | 🟠 | PDF, Word, Excel, CSV, TXT and endpoint 12 done; real Document AI OCR needs Step 3 |
 | 9 Gemini extraction | ❌ | Needs Vertex AI in the GCP project |
 | 10 Grounding | ❌ | |
 | 11 Rule engine | ❌ | |
@@ -250,7 +250,7 @@ Set this up early so that each later step can be deployed and shown:
 
 ## 🟠 Step 6: evidence upload
 
-> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server and get a job and an outbox event. **Left:** the outbox dispatcher that publishes to Pub/Sub (built with Step 7), and Cloud Storage signed URLs tested against a real bucket (Step 3).
+> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server, get a job and an outbox event, and the outbox is published (Step 7). **Left:** Cloud Storage signed URLs tested against a real bucket (Step 3).
 
 
 1. Endpoint **7** `upload-url`: check permission and the declared extension and size against the Step 0 limits, create an `evidence_files` row, and return a short-lived V4 signed PUT URL for an object key **the server chooses**. The URL is bound to the size limit.
@@ -263,7 +263,9 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a file can be uploaded from the Flutter app, the evidence row shows `queued`, and a message reaches Pub/Sub.
 
-## ❌ Step 7: worker and processing pipeline skeleton
+## ✅ Step 7: worker and processing pipeline skeleton
+
+> **Status:** done. Jobs are claimed with a 10-minute lease and their results replace earlier ones, so redelivery changes nothing (tested). Permanent errors fail at once; others retry up to 5 times. The worker service (`app/worker/main.py`, `Dockerfile.worker`) takes Pub/Sub pushes and a Cloud Scheduler outbox sweep, both behind OIDC checks. Locally the API runs jobs inline, and `python -m app.worker drain` processes anything waiting. The Pub/Sub and OIDC pieces get their first real run when deployed (Step 3). Case status isn't changed here; reconciliation (Step 11) decides `in_review` or `completed`.
 
 - Pub/Sub pushes to an **authenticated** Cloud Run worker endpoint, which can't be reached from the public internet.
 - The worker is idempotent. It works from a `processing_jobs` row with a unique idempotency key, so a redelivered message never duplicates claims, findings or audit rows.
@@ -273,7 +275,9 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a test that delivers the same message twice produces exactly one set of results.
 
-## ❌ Step 8: text extraction
+## 🟠 Step 8: text extraction
+
+> **Status:** PDF text layer (lines with positions), Word (paragraphs and table rows), Excel (one page per sheet, rows with cell references), CSV and TXT, plus endpoint 12, are done and tested, including on a real 31-page PDF. Pages with no text layer and images go to OCR. **Left:** the Document AI adapter is written but has only been tested with a stand-in; it needs a processor in the GCP project (Step 3). Until then scans are marked `needs_review` (`ocr_not_configured`).
 
 - **Native parsers first** (cheap, in-region, exact): the PDF text layer, DOCX, XLSX (sheet, row and column kept as the anchor), CSV and TXT.
 - **OCR** only for images and PDF pages that have no text layer, through the `OcrProvider` interface (contract §5) with the **Google Document AI** adapter.
@@ -362,7 +366,7 @@ Endpoint **20**: a read-only assistant with three narrow tools (`get_findings`, 
 | Milestone | Status | Steps | Matches report phase | What you can show |
 | --- | --- | --- | --- | --- |
 | **M1 Vertical slice** | 🟠 | 0–6, 11 (shortfall rule only), 13, 14 (simple PDF) | Phase 1 | Create a case → upload synthetic documents → see the 20-unit shortfall → approve it → export PDF |
-| **M2 Robust ingestion** | ❌ | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
+| **M2 Robust ingestion** | 🟠 | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
 | **M3 Grounded AI** | ❌ | 9, 10, 12 | Phase 3 | Values come from Gemini with source highlights; uncertain ones are flagged |
 | **M4 Review and audit** | ❌ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
 | **M5 Hardening** | ❌ | 16 (connectors), 17 | Phase 5 | Monitoring, backups, staging and production |

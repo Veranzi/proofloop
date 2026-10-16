@@ -42,6 +42,21 @@ class Settings(BaseSettings):
     # Signs local upload links. Local and test only; GCS uses Google-signed URLs.
     local_signing_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     public_base_url: str = "http://localhost:8000"
+    # "pubsub" on Cloud Run. "inline" runs jobs in this process right after the
+    # request (local development), so no Pub/Sub emulator is needed.
+    queue_backend: Literal["pubsub", "inline"] = "inline"
+    # The worker accepts calls only with a Google-signed OIDC token for this
+    # audience (the worker's URL) from one of these service accounts
+    # (the Pub/Sub push and Cloud Scheduler identities).
+    worker_push_audience: str = ""
+    worker_invoker_service_accounts: list[str] = []
+    # Document AI OCR. Leave the processor empty to run without OCR: scanned
+    # pages and images are then marked needs_review. There's no default
+    # location on purpose: choosing one outside asia-southeast1 sends documents
+    # out of the region, which needs sign-off (Docs/backend_plan.md, Step 0).
+    documentai_location: str = ""
+    documentai_processor_id: str = ""
+
     # Browser origins allowed to call the API (the Flutter web app).
     cors_origins: list[str] = ["https://pruflo.web.app", "https://pruflo.firebaseapp.com"]
 

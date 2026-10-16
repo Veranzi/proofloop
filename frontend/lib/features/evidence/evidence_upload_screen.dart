@@ -432,8 +432,12 @@ class _EvidenceUploadScreenState extends State<EvidenceUploadScreen> {
 String _statusLabel(EvidenceItem e) => switch (e.status) {
       'queued' || 'extracting' || 'grounding' || 'reconciling' => 'Processing',
       'processed' => 'Processed',
-      'needs_review' => 'Needs review',
-      'failed_terminal' || 'failed_retryable' => 'Failed',
+      // e.g. a scan while OCR isn't set up: the file is kept, a person checks it.
+      'needs_review' => e.errorClass == 'ocr_not_configured'
+          ? 'Needs review (scanned, no OCR yet)'
+          : 'Needs review',
+      'failed_retryable' => 'Retrying',
+      'failed_terminal' => 'Failed',
       _ => 'Uploading',
     };
 

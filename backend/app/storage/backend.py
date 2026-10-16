@@ -55,9 +55,9 @@ def _disposition(file_name: str, inline: bool = True) -> str:
 
 class GcsStorage:
     def __init__(self, bucket: str) -> None:
-        from google.cloud import storage
+        from google.cloud.storage import Client
 
-        self._client = storage.Client(project=get_settings().gcp_project)
+        self._client = Client(project=get_settings().gcp_project)
         self._bucket = self._client.bucket(bucket)
 
     def _signing_kwargs(self) -> dict[str, object]:

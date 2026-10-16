@@ -53,6 +53,30 @@ curl -H "Authorization: Bearer dev:me1:you@example.com" http://localhost:8000/v1
 Everywhere else the API only accepts Firebase ID tokens (plus App Check) or `pf_live_` API keys.
 Users who haven't been invited get `403 not_invited`.
 
+## Processing uploads (worker)
+
+Locally (`PRUFLO_QUEUE_BACKEND=inline`) the API processes each upload itself right after
+responding, so files move from `queued` to `processed` (or `needs_review`) within seconds.
+To process anything still waiting, for example after a restart:
+
+```bash
+python -m app.worker drain
+```
+
+On Cloud Run the API only writes the job; the separate worker service (`Dockerfile.worker`,
+`app/worker/main.py`) receives it from Pub/Sub:
+
+| Piece | Setting |
+| --- | --- |
+| API | `PRUFLO_QUEUE_BACKEND=pubsub`, `PRUFLO_PUBSUB_TOPIC=evidence-jobs` |
+| Push subscription | to `https://<worker>/pubsub/push` with an OIDC token; retry backoff 10s–600s; dead-letter topic after 5 deliveries |
+| Cloud Scheduler | every minute, `POST https://<worker>/tasks/dispatch-outbox` with an OIDC token, to publish anything the API couldn't |
+| Worker | `PRUFLO_WORKER_PUSH_AUDIENCE=https://<worker>`, `PRUFLO_WORKER_INVOKER_SERVICE_ACCOUNTS=["<push SA>","<scheduler SA>"]`, concurrency 1 |
+
+Text extraction uses the file's own text (PDF text layer, Word, Excel, CSV, TXT). Images and
+scanned PDF pages need OCR: set `PRUFLO_DOCUMENTAI_LOCATION` and `PRUFLO_DOCUMENTAI_PROCESSOR_ID`.
+Without them those files are marked `needs_review` with `error_class: ocr_not_configured`.
+
 ## Checks
 
 ```bash

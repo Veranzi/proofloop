@@ -1,22 +1,24 @@
 """Evidence: endpoints 7, 8, 9, 10 and 11."""
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.permissions import Permission
 from app.auth.principal import Principal, load_case, require
-from app.db.models import Case, EvidenceFile
+from app.db.models import Case, DocumentPage, EvidenceFile, TextBlock
 from app.db.session import get_db
 from app.enums import EvidenceStatus
 from app.errors import not_found
 from app.pagination import Page, after_cursor, clamp_limit, next_cursor_for
 from app.services import evidence as evidence_service
 from app.storage.backend import Storage, get_storage
+from app.worker.queue import Queue, get_queue
 
 router = APIRouter(prefix="/cases/{case_id}/evidence", tags=["evidence"])
 
@@ -116,14 +118,18 @@ def create_upload_url(
 def complete_upload(
     case_id: str,
     evidence_id: str,
+    background: BackgroundTasks,
     principal: Principal = Depends(require(Permission.UPLOAD_EVIDENCE)),
     db: Session = Depends(get_db),
     storage: Storage = Depends(get_storage),
+    queue: Queue = Depends(get_queue),
 ) -> EvidenceOut:
     """8: verify the uploaded file on the server and queue it for processing."""
     case = load_case(db, principal, case_id)
     evidence = _load_evidence(db, case, evidence_id)
-    return _out(evidence_service.complete_upload(db, principal, case, evidence, storage))
+    out = _out(evidence_service.complete_upload(db, principal, case, evidence, storage))
+    background.add_task(queue.kick)  # after the response; the outbox keeps it safe
+    return out
 
 
 @router.get("", response_model=Page[EvidenceOut])
@@ -157,13 +163,17 @@ def list_evidence(
 def retry_evidence(
     case_id: str,
     evidence_id: str,
+    background: BackgroundTasks,
     principal: Principal = Depends(require(Permission.UPLOAD_EVIDENCE)),
     db: Session = Depends(get_db),
+    queue: Queue = Depends(get_queue),
 ) -> EvidenceOut:
     """10: queue a failed file again. Rejected files (wrong type, too big) can't be retried."""
     case = load_case(db, principal, case_id)
     evidence = _load_evidence(db, case, evidence_id)
-    return _out(evidence_service.retry(db, principal, case, evidence))
+    out = _out(evidence_service.retry(db, principal, case, evidence))
+    background.add_task(queue.kick)
+    return out
 
 
 @router.get("/{evidence_id}/view-url", response_model=ViewUrlOut)
@@ -185,3 +195,103 @@ def view_url(
         evidence.detected_mime or evidence.declared_mime,
     )
     return ViewUrlOut(url=signed.url, expires_at=signed.expires_at)
+
+
+class BlockOut(BaseModel):
+    id: str
+    index: int
+    text: str
+    char_start: int
+    char_end: int
+    bbox: dict[str, float] | None  # normalized 0..1: x0, y0 top-left; x1, y1 bottom-right
+    cell_ref: str | None
+    confidence: Decimal | None
+
+
+class PageSummary(BaseModel):
+    index: int
+    label: str
+    width: Decimal | None
+    height: Decimal | None
+    parser: str
+    block_count: int
+
+
+class PageDetail(PageSummary):
+    text: str
+    blocks: list[BlockOut]
+
+
+class AnchorsOut(BaseModel):
+    evidence_id: str
+    status: EvidenceStatus
+    pages: list[PageSummary]
+    page: PageDetail | None  # filled when ?page= is given
+
+
+@router.get("/{evidence_id}/anchors", response_model=AnchorsOut)
+def anchors(
+    case_id: str,
+    evidence_id: str,
+    page: int | None = Query(default=None, ge=1),
+    principal: Principal = Depends(require(Permission.VIEW_CASES)),
+    db: Session = Depends(get_db),
+) -> AnchorsOut:
+    """12: extracted pages, and one page's text and blocks for source highlighting."""
+    case = load_case(db, principal, case_id)
+    evidence = _load_evidence(db, case, evidence_id)
+    counts: dict[str, int] = {
+        page_id: count
+        for page_id, count in db.execute(
+            select(TextBlock.page_id, func.count())
+            .where(TextBlock.evidence_id == evidence.id)
+            .group_by(TextBlock.page_id)
+        ).all()
+    }
+    rows = db.scalars(
+        select(DocumentPage)
+        .where(DocumentPage.evidence_id == evidence.id)
+        .order_by(DocumentPage.page_index)
+    ).all()
+
+    def summary(row: DocumentPage) -> dict[str, object]:
+        return {
+            "index": row.page_index,
+            "label": row.label,
+            "width": row.width,
+            "height": row.height,
+            "parser": row.parser,
+            "block_count": counts.get(row.id, 0),
+        }
+
+    detail = None
+    if page is not None:
+        row = next((r for r in rows if r.page_index == page), None)
+        if row is None:
+            raise not_found("Page")
+        blocks = db.scalars(
+            select(TextBlock).where(TextBlock.page_id == row.id).order_by(TextBlock.block_index)
+        ).all()
+        detail = PageDetail(
+            **summary(row),
+            text=row.text,
+            blocks=[
+                BlockOut(
+                    id=b.id,
+                    index=b.block_index,
+                    text=b.text,
+                    char_start=b.char_start,
+                    char_end=b.char_end,
+                    bbox=b.bbox,
+                    cell_ref=b.cell_ref,
+                    confidence=b.confidence,
+                )
+                for b in blocks
+            ],
+        )
+    return AnchorsOut(
+        evidence_id=evidence.id,
+        status=EvidenceStatus(evidence.status),
+        pages=[PageSummary(**summary(r)) for r in rows],
+        page=detail,
+    )

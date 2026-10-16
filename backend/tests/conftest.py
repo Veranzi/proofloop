@@ -8,6 +8,7 @@ Each test runs inside a transaction that is rolled back afterwards.
 
 import os
 from collections.abc import Iterator
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.storage.backend import LocalStorage
+from app.worker.queue import InlinePublisher, Queue
 from tests.factories import Factory
 
 os.environ.setdefault("PRUFLO_ENV", "test")
@@ -76,16 +78,24 @@ def storage(tmp_path: Path) -> LocalStorage:
 
 
 @pytest.fixture
-def client(db: Session, storage: LocalStorage) -> Iterator[TestClient]:
+def queue(db: Session, storage: LocalStorage) -> Queue:
+    """Runs jobs inline on the test's session, without OCR."""
+    return Queue(lambda: nullcontext(db), InlinePublisher(), storage, None, inline=True)
+
+
+@pytest.fixture
+def client(db: Session, storage: LocalStorage, queue: Queue) -> Iterator[TestClient]:
     """The API, using the test's session so everything rolls back afterwards."""
     from app.auth.api_keys import rate_limiter
     from app.db.session import get_db
     from app.main import create_app
     from app.storage.backend import get_storage
+    from app.worker.queue import get_queue
 
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_storage] = lambda: storage
+    app.dependency_overrides[get_queue] = lambda: queue
     rate_limiter.reset()
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client

@@ -1,0 +1,13 @@
+# Cloud Run worker: receives Pub/Sub pushes and processes evidence.
+# Deploy as its own service with its own service account, no public access
+# (--no-allow-unauthenticated), and PRUFLO_QUEUE_BACKEND=pubsub.
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+
+# Processing is memory-heavy: run one job per instance (concurrency 1) and
+# let Cloud Run scale out instead.
+CMD exec uvicorn app.worker.main:app --host 0.0.0.0 --port ${PORT:-8080} --no-access-log

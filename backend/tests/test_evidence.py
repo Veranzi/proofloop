@@ -84,11 +84,14 @@ def test_upload_flow_verifies_and_queues(client: TestClient, make: Factory, db: 
     assert event is not None and event.payload == {"evidence_id": evidence.id, "job_id": job.id}
     assert db.scalar(select(AuditEvent).where(AuditEvent.action == "evidence.uploaded"))
 
-    # Completing twice is harmless.
+    # Completing twice is harmless: no second job. (The worker has already run
+    # by now; this blank PDF has no text and there's no OCR, so it needs review.)
     again = client.post(
         f"/v1/cases/{case.id}/evidence/{evidence.id}/complete", headers=alice.headers
     )
-    assert again.status_code == 200 and again.json()["status"] == "queued"
+    assert again.status_code == 200 and again.json()["status"] == "needs_review"
+    jobs = db.scalars(select(ProcessingJob).where(ProcessingJob.evidence_id == evidence.id))
+    assert len(jobs.all()) == 1
 
     listed = client.get(f"/v1/cases/{case.id}/evidence", headers=alice.headers).json()
     assert [e["id"] for e in listed["items"]] == [evidence.id]
