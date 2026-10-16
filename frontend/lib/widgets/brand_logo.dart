@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 
+/// The Pruflo logo artwork, shared by the app's brand widgets.
+class PrufloMark {
+  static const asset = 'assets/brand/pruflo_mark.png';
+}
+
 /// The Pruflo mark (infinity loop) with the word mark beside it.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 22, this.light = false});
@@ -16,9 +21,7 @@ class BrandLogo extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.all_inclusive,
-            size: size * 1.3,
-            color: light ? const Color(0xFF4F86FF) : AppColors.primary),
+        Image.asset(PrufloMark.asset, height: size * 1.1),
         SizedBox(width: size * 0.35),
         Flexible(
           child: Text(
