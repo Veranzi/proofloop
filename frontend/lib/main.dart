@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 
 import 'app/router.dart';
 import 'app/theme.dart';
+import 'core/auth_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const PrufloApp());
+  // The splash screen waits until the saved session has been checked.
+  await AuthService.instance.init();
 }
 
 class PrufloApp extends StatelessWidget {

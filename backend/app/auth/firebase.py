@@ -29,7 +29,9 @@ class FirebaseIdentity:
 @lru_cache
 def _firebase_app() -> firebase_admin.App:
     # On Cloud Run this uses the service account; no key file is needed.
-    return firebase_admin.initialize_app(options={"projectId": get_settings().gcp_project})
+    settings = get_settings()
+    project = settings.firebase_project or settings.gcp_project
+    return firebase_admin.initialize_app(options={"projectId": project})
 
 
 def dev_mode_enabled() -> bool:

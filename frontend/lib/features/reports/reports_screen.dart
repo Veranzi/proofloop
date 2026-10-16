@@ -1,22 +1,42 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
-import '../../core/case_export.dart';
+import '../../core/api.dart';
+import '../../core/auth_service.dart';
+import '../../core/download.dart';
 import '../../core/formatters.dart';
-import '../../core/mock_repository.dart';
 import '../../core/models.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/page_header.dart';
+import '../../widgets/status_chip.dart';
 
-enum _ReportType { summary, detailed, executive }
+enum _ReportType {
+  summary('Summary Report'),
+  detailed('Detailed Report'),
+  executive('Executive Report');
+
+  const _ReportType(this.label);
+  final String label;
+}
 
 enum _ExportFormat { json, csv }
 
-/// Generate a case report and list recent ones.
+/// Report sections and their API names.
+const _sectionNames = {
+  'Evidence Summary': 'evidence',
+  'Timeline': 'timeline',
+  'Findings & Conclusion': 'findings',
+  'Recommendations': 'recommendations',
+};
+
+/// Generate a case report and list the case's reports.
 ///
-/// API: POST /v1/cases/{caseId}/reports (17) starts generation,
-/// GET .../reports (18) lists them, and GET .../download-url (19) returns a
-/// signed URL for the PDF. GET /v1/cases/{caseId}/export (50) returns the
-/// findings as JSON or CSV for other systems.
+/// API: POST /v1/cases/{caseId}/reports (17) starts generation in the
+/// worker, GET .../reports (18) lists them, and GET .../download-url (19)
+/// returns a signed URL for the PDF. GET /v1/cases/{caseId}/export (50)
+/// returns the findings as JSON or CSV for other systems.
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key, this.initialCaseId});
 
@@ -27,56 +47,171 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  late String _caseId;
+  final _api = PrufloApi();
+  late Future<List<CaseItem>> _cases = _loadCases();
+  String? _caseId;
+
+  Future<List<CaseItem>> _loadCases() async {
+    final (cases, _) = await _api.allCases(cap: 500);
+    if (_caseId == null && cases.isNotEmpty) {
+      final wanted = cases.where((c) =>
+          c.id == widget.initialCaseId || c.reference == widget.initialCaseId);
+      _caseId = (wanted.isNotEmpty ? wanted.first : cases.first).id;
+    }
+    return cases;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 1100;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PageHeader(
+            title: wide ? 'Generate Report' : 'Reports',
+            subtitle: 'Create reports from the stored evidence and decisions',
+          ),
+          AsyncView<List<CaseItem>>(
+            future: _cases,
+            onRetry: () => setState(() => _cases = _loadCases()),
+            builder: (context, cases) {
+              final caseId = _caseId;
+              if (cases.isEmpty || caseId == null) {
+                return const SectionCard(
+                  child: EmptyPanel(
+                    icon: Icons.description_outlined,
+                    title: 'No cases yet',
+                    message: 'Reports are generated per case.',
+                  ),
+                );
+              }
+              return _CaseReports(
+                key: ValueKey(caseId),
+                cases: cases,
+                caseId: caseId,
+                wide: wide,
+                onCaseChanged: (id) => setState(() => _caseId = id),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CaseReports extends StatefulWidget {
+  const _CaseReports({
+    super.key,
+    required this.cases,
+    required this.caseId,
+    required this.wide,
+    required this.onCaseChanged,
+  });
+
+  final List<CaseItem> cases;
+  final String caseId;
+  final bool wide;
+  final ValueChanged<String> onCaseChanged;
+
+  @override
+  State<_CaseReports> createState() => _CaseReportsState();
+}
+
+class _CaseReportsState extends State<_CaseReports> {
+  final _api = PrufloApi();
   _ReportType _type = _ReportType.detailed;
-  final _sections = <String, bool>{
-    'Evidence Summary': true,
-    'Timeline': true,
-    'Findings & Conclusion': true,
-    'Recommendations': true,
-  };
+  final _sections = {for (final s in _sectionNames.keys) s: true};
   bool _generating = false;
   _ExportFormat _exportFormat = _ExportFormat.json;
+  bool _exporting = false;
+
+  List<ReportItem>? _reports;
+  Object? _reportsError;
+  Timer? _poll;
+
+  CaseItem get _case => widget.cases.firstWhere((c) => c.id == widget.caseId);
 
   @override
   void initState() {
     super.initState();
-    _caseId = widget.initialCaseId ?? MockRepository.instance.cases().first.id;
+    _loadReports();
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadReports() async {
+    _poll?.cancel();
+    try {
+      final reports = await _api.reports(widget.caseId);
+      if (!mounted) return;
+      setState(() {
+        _reports = reports;
+        _reportsError = null;
+      });
+      // The worker makes queued reports ready shortly; check again soon.
+      if (reports.any((r) => r.queued)) {
+        _poll = Timer(const Duration(seconds: 3), _loadReports);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _reportsError = e);
+    }
   }
 
   Future<void> _generate() async {
-    final repo = MockRepository.instance;
-    final item = repo.caseById(_caseId)!;
     setState(() => _generating = true);
-    await Future<void>.delayed(const Duration(seconds: 1));
-    repo.addReport(ReportItem(
-      title: '${item.title} Report',
-      caseId: item.id,
-      createdAt: DateTime.now(),
-    ));
-    if (!mounted) return;
-    setState(() => _generating = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Report for Case #${item.id} is ready'),
-    ));
+    try {
+      await _api.requestReport(widget.caseId, _type.name, [
+        for (final e in _sections.entries)
+          if (e.value) _sectionNames[e.key]!,
+      ]);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Generating the report for Case #${_case.reference}. '
+            'It will appear in the list when ready.'),
+      ));
+      await _loadReports();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _generating = false);
+    }
   }
 
-  void _download(ReportItem r) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Downloading ${r.title}.pdf'),
-    ));
+  Future<void> _download(ReportItem r) async {
+    try {
+      await openUrl(await _api.reportDownloadUrl(widget.caseId, r.id));
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
-  void _previewExport() {
-    final item = MockRepository.instance.caseById(_caseId)!;
+  Future<String?> _fetchExport() async {
+    setState(() => _exporting = true);
+    try {
+      return await _api.exportFindings(widget.caseId, _exportFormat.name);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return null;
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _previewExport() async {
+    final body = await _fetchExport();
+    if (body == null || !mounted) return;
     final format = _exportFormat.name.toUpperCase();
-    final body = _exportFormat == _ExportFormat.json
-        ? CaseExport.json(item)
-        : CaseExport.csv(item);
-    showDialog<void>(
+    await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Case #${item.id} export ($format)'),
+        title: Text('Case #${_case.reference} export ($format)'),
         content: SizedBox(
           width: 560,
           height: 420,
@@ -96,17 +231,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 
-  void _downloadExport() {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Downloading case-$_caseId-findings.${_exportFormat.name}'),
-    ));
+  Future<void> _downloadExport() async {
+    final body = await _fetchExport();
+    if (body == null || !mounted) return;
+    final ext = _exportFormat.name;
+    try {
+      await saveTextFile('case-${_case.reference}-findings.$ext', body,
+          ext == 'csv' ? 'text/csv' : 'application/json');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 1100;
-    final cases = MockRepository.instance.cases();
+    final canExport = AuthService.instance.user?.role.canExport ?? false;
     final anySection = _sections.values.any((v) => v);
+
+    final caseField = DropdownButtonFormField<String>(
+      initialValue: widget.caseId,
+      isExpanded: true,
+      items: [
+        for (final c in widget.cases)
+          DropdownMenuItem(
+              value: c.id,
+              child: Text('Case #${c.reference} - ${c.title}',
+                  overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: (v) => widget.onCaseChanged(v!),
+    );
 
     final form = SectionCard(
       title: 'Generate Report',
@@ -114,61 +267,55 @@ class _ReportsScreenState extends State<ReportsScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _Label('Case'),
-          DropdownButtonFormField<String>(
-            initialValue: _caseId,
-            isExpanded: true,
-            items: [
-              for (final c in cases)
-                DropdownMenuItem(
-                    value: c.id, child: Text('Case #${c.id} - ${c.title}')),
-            ],
-            onChanged: (v) => setState(() => _caseId = v!),
-          ),
+          caseField,
           const SizedBox(height: 20),
-          const _Label('Report Type'),
-          for (final t in _ReportType.values)
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => setState(() => _type = t),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    Icon(
-                      _type == t
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                      size: 20,
-                      color: _type == t
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(switch (t) {
-                      _ReportType.summary => 'Summary Report',
-                      _ReportType.detailed => 'Detailed Report',
-                      _ReportType.executive => 'Executive Report',
-                    }),
-                  ],
+          if (!canExport)
+            const Text(
+              'Viewers can read reports but not generate them.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            )
+          else ...[
+            const _Label('Report Type'),
+            for (final t in _ReportType.values)
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => setState(() => _type = t),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _type == t
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        size: 20,
+                        color: _type == t
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(t.label),
+                    ],
+                  ),
                 ),
               ),
+            const SizedBox(height: 16),
+            const _Label('Include'),
+            for (final entry in _sections.entries)
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: entry.value,
+                title: Text(entry.key),
+                onChanged: (v) => setState(() => _sections[entry.key] = v!),
+              ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _generating || !anySection ? null : _generate,
+              child: Text(_generating ? 'Starting…' : 'Generate Report'),
             ),
-          const SizedBox(height: 16),
-          const _Label('Include'),
-          for (final entry in _sections.entries)
-            CheckboxListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              value: entry.value,
-              title: Text(entry.key),
-              onChanged: (v) => setState(() => _sections[entry.key] = v!),
-            ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _generating || !anySection ? null : _generate,
-            child: Text(_generating ? 'Generating…' : 'Generate Report'),
-          ),
+          ],
         ],
       ),
     );
@@ -197,14 +344,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _previewExport,
+                  onPressed: _exporting ? null : _previewExport,
                   child: const Text('Preview'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _downloadExport,
+                  onPressed: _exporting ? null : _downloadExport,
                   icon: const Icon(Icons.download_outlined, size: 18),
                   label: const Text('Download'),
                 ),
@@ -215,50 +362,63 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
 
+    final reports = _reports;
     final recent = SectionCard(
-      title: 'Recent Reports',
-      child: Column(
-        children: [
-          for (final r in MockRepository.instance.reports())
-            _ReportRow(report: r, onDownload: () => _download(r)),
-        ],
-      ),
+      title: 'Reports for Case #${_case.reference}',
+      child: _reportsError != null
+          ? ErrorPanel(
+              message: '$_reportsError', onRetry: _loadReports, compact: true)
+          : reports == null
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2.5)),
+                )
+              : reports.isEmpty
+                  ? const EmptyPanel(
+                      icon: Icons.description_outlined,
+                      title: 'No reports yet',
+                      message: 'Generated reports for this case appear here.',
+                    )
+                  : Column(
+                      children: [
+                        for (final r in reports)
+                          _ReportRow(
+                            report: r,
+                            onDownload: r.ready ? () => _download(r) : null,
+                          ),
+                      ],
+                    ),
     );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    if (widget.wide) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PageHeader(
-            title: wide ? 'Generate Report' : 'Reports',
-            subtitle: 'Create detailed reports from your case analysis',
-          ),
-          if (wide)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [form, const SizedBox(height: 20), export],
-                  ),
-                ),
-                const SizedBox(width: 20),
-                Expanded(flex: 2, child: recent),
+                form,
+                if (canExport) ...[const SizedBox(height: 20), export],
               ],
-            )
-          else ...[
-            // Phones lead with the report list, as in the mobile mockup.
-            recent,
-            const SizedBox(height: 16),
-            form,
-            const SizedBox(height: 16),
-            export,
-          ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(flex: 2, child: recent),
         ],
-      ),
+      );
+    }
+    // Phones lead with the report list, as in the mobile mockup.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        recent,
+        const SizedBox(height: 16),
+        form,
+        if (canExport) ...[const SizedBox(height: 16), export],
+      ],
     );
   }
 }
@@ -280,10 +440,17 @@ class _Label extends StatelessWidget {
 class _ReportRow extends StatelessWidget {
   const _ReportRow({required this.report, required this.onDownload});
   final ReportItem report;
-  final VoidCallback onDownload;
+  final VoidCallback? onDownload;
 
   @override
   Widget build(BuildContext context) {
+    final status = switch (report.status) {
+      'ready' => null,
+      'failed' => const Pill('Failed',
+          foreground: AppColors.danger, background: AppColors.dangerSoft),
+      _ => const Pill('Generating',
+          foreground: AppColors.warning, background: AppColors.warningSoft),
+    };
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onDownload,
@@ -307,17 +474,23 @@ class _ReportRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(report.title,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w600)),
-                  Text('Case #${report.caseId} · PDF',
+                  Text(
+                      [
+                        'PDF',
+                        if (report.requestedBy != null)
+                          report.requestedBy!.name,
+                        timeAgo(report.createdAt),
+                      ].join(' · '),
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textSecondary)),
                 ],
               ),
             ),
-            Text(timeAgo(report.createdAt),
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
+            ?status,
             IconButton(
               tooltip: 'Download PDF',
               icon: const Icon(Icons.download_outlined, size: 18),

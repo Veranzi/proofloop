@@ -21,8 +21,9 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: pruflo
-          POSTGRES_PASSWORD: pruflo
           POSTGRES_DB: pruflo
+          # Throwaway database reachable only from this job, so no password.
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5433:5432"]
         options: >-
           --health-cmd "pg_isready -U pruflo" --health-interval 2s --health-retries 20

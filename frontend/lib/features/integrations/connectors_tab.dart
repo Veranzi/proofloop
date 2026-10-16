@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../core/formatters.dart';
 import '../../core/integration_models.dart';
-import '../../core/integrations_repository.dart';
+import '../../core/download.dart';
+import '../../core/integrations_api.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/status_chip.dart';
 import 'integration_widgets.dart';
@@ -20,7 +22,10 @@ class ConnectorsTab extends StatefulWidget {
 }
 
 class _ConnectorsTabState extends State<ConnectorsTab> {
-  final _repo = IntegrationsRepository.instance;
+  final _api = IntegrationsApi();
+  late Future<List<Connector>> _future = _api.connectors();
+
+  void _reload() => setState(() => _future = _api.connectors());
 
   Future<void> _connect(ConnectorKind kind) async {
     final Widget? dialog = switch (kind) {
@@ -30,14 +35,25 @@ class _ConnectorsTabState extends State<ConnectorsTab> {
       ConnectorKind.emailInbox || ConnectorKind.sap => null,
     };
     // The email inbox needs no input: the API generates the address.
-    final detail = dialog == null
-        ? ''
-        : await showDialog<String>(context: context, builder: (_) => dialog);
-    if (detail == null || !mounted) return;
-    final c = _repo.connect(kind, detail: detail);
-    setState(() {});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('${c.kind.label} connected')));
+    final body = dialog == null
+        ? <String, dynamic>{}
+        : await showDialog<Map<String, dynamic>>(
+            context: context, builder: (_) => dialog);
+    if (body == null || !mounted) return;
+    try {
+      final result = await _api.connect(kind, body);
+      final authUrl = result['authorization_url'];
+      if (authUrl is String) {
+        // Drive and SharePoint: finish on the provider's consent screen.
+        await openUrl(authUrl);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('${kind.label} connected')));
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
   }
 
   Future<void> _disconnect(Connector c) async {
@@ -49,28 +65,41 @@ class _ConnectorsTabState extends State<ConnectorsTab> {
           'imported stays in its cases.',
       action: 'Disconnect',
     );
-    if (ok) setState(() => _repo.disconnect(c.kind));
+    if (!ok) return;
+    try {
+      await _api.disconnect(c.kind);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const TabIntro(title: 'Document sources'),
-        const InfoBanner(
-          'Start with the email inbox: any system that can send email can '
-          'deliver documents to PruFlo. Imported files go through the same '
-          'checks and processing as manual uploads.',
-        ),
-        const SizedBox(height: 12),
-        for (final c in _repo.connectors())
-          _ConnectorRow(
-            connector: c,
-            onConnect: () => _connect(c.kind),
-            onDisconnect: () => _disconnect(c),
+    return AsyncView<List<Connector>>(
+      future: _future,
+      onRetry: _reload,
+      builder: (context, connectors) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const TabIntro(title: 'Document sources'),
+          InfoBanner(
+            connectors.every((c) => c.status == ConnectorStatus.comingSoon)
+                ? 'Importing documents from other systems is coming soon. '
+                    'Until then, upload evidence from the Evidence page or '
+                    'through the API with an API key.'
+                : 'Imported files go through the same checks and processing '
+                    'as manual uploads.',
           ),
-      ],
+          const SizedBox(height: 12),
+          for (final c in connectors)
+            _ConnectorRow(
+              connector: c,
+              onConnect: () => _connect(c.kind),
+              onDisconnect: () => _disconnect(c),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -241,7 +270,7 @@ class _FolderDialogState extends State<_FolderDialog> {
                 label: 'Folder link or path',
                 hint: widget.kind == ConnectorKind.googleDrive
                     ? 'https://drive.google.com/drive/folders/...'
-                    : 'https://contoso.sharepoint.com/sites/Finance/...',
+                    : 'https://yourcompany.sharepoint.com/sites/...',
                 controller: _folder,
                 validator: (v) => Validators.required(v, 'Folder'),
               ),
@@ -267,7 +296,12 @@ class _FolderDialogState extends State<_FolderDialog> {
           style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-            Navigator.of(context).pop(_folder.text.trim());
+            Navigator.of(context).pop(<String, dynamic>{
+              'folder': _folder.text.trim(),
+              // The API's OAuth callback sends the browser back here.
+              'return_url': Uri.base.replace(path: '/integrations', query: '',
+                  fragment: '').toString(),
+            });
           },
           child: Text('Continue to $provider'),
         ),
@@ -361,7 +395,12 @@ class _OdooDialogState extends State<_OdooDialog> {
           style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-            Navigator.of(context).pop(_url.text.trim());
+            Navigator.of(context).pop(<String, dynamic>{
+              'url': _url.text.trim(),
+              'database': _db.text.trim(),
+              'username': _user.text.trim(),
+              'api_key': _key.text.trim(),
+            });
           },
           child: const Text('Connect'),
         ),

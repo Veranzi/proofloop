@@ -176,64 +176,73 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = AuthService.instance.user;
-    return Container(
-      height: 64,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        children: [
-          const Spacer(),
-          const SizedBox(
-            width: 280,
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search...',
-                prefixIcon: Icon(Icons.search, size: 18),
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {},
-            icon: const Icon(Icons.notifications_none_outlined),
-          ),
-          const SizedBox(width: 8),
-          PopupMenuButton<String>(
-            tooltip: 'Account',
-            onSelected: (v) {
-              if (v == 'profile') context.go('/profile');
-              if (v == 'signout') {
-                AuthService.instance.signOut();
-                context.go('/login');
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'profile', child: Text('Profile')),
-              PopupMenuItem(value: 'signout', child: Text('Sign out')),
-            ],
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppColors.primarySoft,
-                  child: Text(user?.initials ?? '?',
-                      style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary)),
+    return ListenableBuilder(
+      listenable: AuthService.instance,
+      builder: (context, _) {
+        final user = AuthService.instance.user;
+        return Container(
+          height: 64,
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            children: [
+              const Spacer(),
+              SizedBox(
+                width: 280,
+                child: TextField(
+                  textInputAction: TextInputAction.search,
+                  // Searches case titles and references (GET /v1/cases?q=).
+                  onSubmitted: (q) => context.go(
+                      Uri(path: '/cases', queryParameters: {
+                        if (q.trim().isNotEmpty) 'q': q.trim(),
+                      }).toString()),
+                  decoration: const InputDecoration(
+                    hintText: 'Search cases...',
+                    prefixIcon: Icon(Icons.search, size: 18),
+                    contentPadding: EdgeInsets.symmetric(vertical: 10),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Text(user?.name ?? '',
-                    style: const TextStyle(fontWeight: FontWeight.w500)),
-                const Icon(Icons.keyboard_arrow_down, size: 18),
-              ],
-            ),
+              ),
+              const SizedBox(width: 16),
+              PopupMenuButton<String>(
+                tooltip: 'Account',
+                onSelected: (v) async {
+                  if (v == 'profile') context.go('/profile');
+                  if (v == 'signout') {
+                    await AuthService.instance.signOut();
+                    if (context.mounted) context.go('/login');
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'profile', child: Text('Profile')),
+                  PopupMenuItem(value: 'signout', child: Text('Sign out')),
+                ],
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppColors.primarySoft,
+                      child: Text(user?.initials ?? '',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary)),
+                    ),
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: Text(user?.displayName ?? '',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
+                    ),
+                    const Icon(Icons.keyboard_arrow_down, size: 18),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

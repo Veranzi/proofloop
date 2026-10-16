@@ -124,3 +124,18 @@ def test_cors_allows_the_web_app_and_local_dev_only() -> None:
         assert res.headers["access-control-allow-origin"] == origin
     evil = client.options("/v1/cases", headers={"Origin": "https://evil.example", **preflight})
     assert "access-control-allow-origin" not in evil.headers
+
+
+def test_docs_are_hidden_in_production() -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    original = settings.env
+    settings.env = "prod"
+    try:
+        client = TestClient(create_app())
+        assert client.get("/docs").status_code == 404
+        assert client.get("/openapi.json").status_code == 404
+    finally:
+        settings.env = original
+    assert TestClient(create_app()).get("/openapi.json").status_code == 200

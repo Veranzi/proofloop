@@ -1,13 +1,14 @@
 # Local stand-ins for Cloud SQL, Pub/Sub and Cloud Storage.
 # Start with: docker compose up -d
+# The database password comes from PRUFLO_DB_PASSWORD in backend/.env (git-ignored).
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: pruflo
-      POSTGRES_PASSWORD: pruflo
+      POSTGRES_PASSWORD: ${PRUFLO_DB_PASSWORD:?Set PRUFLO_DB_PASSWORD in backend/.env, see .env.example}
       POSTGRES_DB: pruflo
-    ports: ["5433:5432"]
+    ports: ["127.0.0.1:5433:5432"]  # this machine only
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pruflo"]
@@ -17,12 +18,12 @@ services:
   pubsub:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
     command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=pruflo-local
-    ports: ["8085:8085"]
+    ports: ["127.0.0.1:8085:8085"]
 
   gcs:
     image: fsouza/fake-gcs-server:1.52.2
     command: -scheme http -port 4443 -public-host localhost:4443
-    ports: ["4443:4443"]
+    ports: ["127.0.0.1:4443:4443"]
 
 volumes:
   pgdata:

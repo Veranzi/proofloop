@@ -16,20 +16,31 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  Timer? _timer;
+  final _auth = AuthService.instance;
+  Timer? _minimum;
+  bool _shownLongEnough = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer(const Duration(milliseconds: 1800), () {
-      if (!mounted) return;
-      context.go(AuthService.instance.isSignedIn ? '/dashboard' : '/login');
+    // Show the brand briefly, and longer only while the session is checked.
+    _minimum = Timer(const Duration(milliseconds: 900), () {
+      _shownLongEnough = true;
+      _maybeContinue();
     });
+    _auth.addListener(_maybeContinue);
+  }
+
+  void _maybeContinue() {
+    if (!mounted || !_shownLongEnough || !_auth.ready) return;
+    _auth.removeListener(_maybeContinue);
+    context.go(_auth.isSignedIn ? '/dashboard' : '/login');
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _minimum?.cancel();
+    _auth.removeListener(_maybeContinue);
     super.dispose();
   }
 

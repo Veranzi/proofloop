@@ -17,34 +17,24 @@ cleared, because the append-only audit trail refers to it:
 
 import argparse
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import CaseMember, Device, Membership, ProviderSettings, Tenant, User
+from app.db.models import ProviderSettings, Tenant, User
 from app.db.session import get_engine
 from app.enums import Role
 from app.ids import new_id
+from app.services import users
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def _normalise(email: str) -> str:
-    email = email.strip().lower()
-    if "@" not in email or email.startswith("@") or email.endswith("@"):
-        raise ValueError(f"Not an email address: {email!r}")
-    return email
-
-
 def bootstrap(db: Session, tenant_name: str, admin_email: str, admin_name: str) -> Tenant:
-    email = _normalise(admin_email)
+    email = users.normalise_email(admin_email)
     tenant = Tenant(id=new_id("ten"), name=tenant_name.strip())
     db.add(tenant)
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(id=new_id("u"), email=email, name=admin_name.strip())
-        db.add(user)
     db.flush()
-    db.add(Membership(id=new_id("mem"), tenant_id=tenant.id, user_id=user.id, role=Role.ADMIN))
+    users.invite(db, tenant.id, email, Role.ADMIN, admin_name)
     db.add(ProviderSettings(tenant_id=tenant.id, model=DEFAULT_MODEL))
     db.commit()
     return tenant
@@ -52,38 +42,17 @@ def bootstrap(db: Session, tenant_name: str, admin_email: str, admin_name: str) 
 
 def invite(db: Session, tenant_id: str, email: str, role: Role, name: str = "") -> User:
     """Give ``email`` the role in the organisation. They link their account on first sign-in."""
-    if db.get(Tenant, tenant_id) is None:
-        raise ValueError(f"No organisation {tenant_id}")
-    email = _normalise(email)
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(id=new_id("u"), email=email, name=name.strip())
-        db.add(user)
-        db.flush()
-    user.active = True
-    membership = db.scalar(
-        select(Membership).where(Membership.tenant_id == tenant_id, Membership.user_id == user.id)
-    )
-    if membership is None:
-        db.add(Membership(id=new_id("mem"), tenant_id=tenant_id, user_id=user.id, role=role))
-    else:
-        membership.role = role
+    user = users.invite(db, tenant_id, email, role, name)
     db.commit()
     return user
 
 
 def remove_user(db: Session, email: str) -> User:
     """Take away all access. The row is kept (audit events point at it) but anonymised."""
-    user = db.scalar(select(User).where(User.email == _normalise(email)))
+    user = db.scalar(select(User).where(User.email == users.normalise_email(email)))
     if user is None:
         raise ValueError(f"No user with email {email}")
-    db.execute(delete(Membership).where(Membership.user_id == user.id))
-    db.execute(delete(CaseMember).where(CaseMember.user_id == user.id))
-    db.execute(delete(Device).where(Device.user_id == user.id))
-    user.active = False
-    user.firebase_uid = None
-    user.email = f"removed+{user.id}@pruflo.invalid"
-    user.phone = ""
+    users.anonymise(db, user)
     db.commit()
     return user
 

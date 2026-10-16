@@ -17,15 +17,39 @@ class VerifyEmailScreen extends StatefulWidget {
 
 class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   bool _sending = false;
+  bool _checking = false;
+
+  void _say(String message) => ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _resend() async {
     setState(() => _sending = true);
-    await AuthService.instance.resendVerification(widget.email);
-    if (!mounted) return;
-    setState(() => _sending = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Verification email sent again.')),
-    );
+    try {
+      await AuthService.instance.resendVerification();
+      if (mounted) _say('Verification email sent again.');
+    } on AuthException catch (e) {
+      if (mounted) _say(e.message);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// After clicking the link in the email: reload and continue.
+  Future<void> _continue() async {
+    setState(() => _checking = true);
+    try {
+      final verified = await AuthService.instance.checkEmailVerified();
+      if (!mounted) return;
+      if (verified) {
+        context.go('/dashboard');
+      } else {
+        _say("Your email isn't verified yet. Click the link in the email first.");
+      }
+    } on AuthException catch (e) {
+      if (mounted) _say(e.message);
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
   }
 
   @override
@@ -53,6 +77,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
             style: TextStyle(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _checking ? null : _continue,
+            child: Text(_checking ? 'Checking…' : "I've verified my email"),
+          ),
+          const SizedBox(height: 8),
           Center(
             child: TextButton(
               onPressed: _sending ? null : _resend,
@@ -61,7 +90,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
           ),
           Center(
             child: TextButton(
-              onPressed: () => context.go('/login'),
+              onPressed: () async {
+                await AuthService.instance.signOut();
+                if (context.mounted) context.go('/login');
+              },
               child: const Text('Back to login'),
             ),
           ),

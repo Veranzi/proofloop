@@ -6,6 +6,7 @@ import '../../core/auth_service.dart';
 import '../../widgets/auth_layout.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/social_buttons.dart';
+import '../integrations/integration_widgets.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -28,16 +29,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  final _auth = AuthService.instance;
+
+  Future<void> _run(Future<SignInResult> Function() action) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await action();
-      if (mounted) context.go('/dashboard');
+      final result = await action();
+      if (!mounted) return;
+      if (result == SignInResult.needsEmailVerification) {
+        context.go(Uri(
+            path: '/verify-email',
+            queryParameters: {'email': _email.text.trim()}).toString());
+      } else {
+        context.go('/dashboard');
+      }
     } on AuthException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -45,12 +57,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
-    _run(() => AuthService.instance.signIn(_email.text.trim(), _password.text));
+    _run(() => _auth.signIn(_email.text.trim(), _password.text));
   }
 
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 600;
+    final firebase = _auth.usesFirebase;
 
     return AuthLayout(
       title: 'Welcome back',
@@ -60,29 +73,43 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (!firebase) ...[
+              const InfoBanner(
+                'Development sign-in: enter an email address your Pruflo '
+                'admin has invited. No password is needed, and it only works '
+                'with an API running locally.',
+                warning: true,
+              ),
+              const SizedBox(height: 16),
+            ],
             LabeledField(
               label: 'Email address',
               hint: 'you@company.com',
               controller: _email,
               keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
+              textInputAction:
+                  firebase ? TextInputAction.next : TextInputAction.done,
+              onSubmitted: firebase ? null : (_) => _submit(),
               validator: Validators.email,
             ),
-            const SizedBox(height: 16),
-            PasswordField(
-              label: 'Password',
-              controller: _password,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submit(),
-              validator: (v) => Validators.required(v, 'Password'),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => context.go('/forgot-password'),
-                child: const Text('Forgot password?'),
+            if (firebase) ...[
+              const SizedBox(height: 16),
+              PasswordField(
+                label: 'Password',
+                controller: _password,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                validator: (v) => Validators.required(v, 'Password'),
               ),
-            ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => context.go('/forgot-password'),
+                  child: const Text('Forgot password?'),
+                ),
+              ),
+            ] else
+              const SizedBox(height: 16),
             if (_error != null) ...[
               Text(_error!,
                   style: const TextStyle(color: AppColors.danger, fontSize: 13)),
@@ -99,16 +126,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     )
                   : const Text('Sign In'),
             ),
+            if (firebase) ...[
+              const SizedBox(height: 24),
+              const OrDivider(),
+              const SizedBox(height: 16),
+              SocialButtons(
+                compact: compact,
+                onPressed: (p) => _run(() => _auth.signInWithProvider(p)),
+              ),
+            ],
             const SizedBox(height: 24),
-            const OrDivider(),
-            const SizedBox(height: 16),
-            SocialButtons(
-              compact: compact,
-              onPressed: (p) =>
-                  _run(() => AuthService.instance.signInWithProvider(p)),
-            ),
-            const SizedBox(height: 24),
-            Wrap(
+            if (firebase) Wrap(
               alignment: WrapAlignment.center,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
