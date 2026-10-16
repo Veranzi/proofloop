@@ -13,6 +13,11 @@ class ApiEndpoints {
     defaultValue: 'http://localhost:8000',
   );
 
+  /// Off by default, so the hosted demo keeps running on mock data until the
+  /// API is deployed. Run locally against the backend with:
+  /// flutter run -d chrome --dart-define=USE_API=true
+  static const useApi = bool.fromEnvironment('USE_API');
+
   // Profile and session
   static const me = '/v1/me'; // 1 GET, 21 PATCH
   static const devices = '/v1/devices'; // 2 POST
