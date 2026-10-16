@@ -29,6 +29,15 @@ from app.storage.backend import Storage, get_storage
 logger = logging.getLogger("pruflo.queue")
 
 PROCESS_EVIDENCE = "evidence.process"
+WEBHOOK_FANOUT = "webhook.fanout"
+
+
+def message_for(event: OutboxEvent) -> tuple[str, dict[str, Any]]:
+    """The Pub/Sub message type and payload for an outbox event."""
+    if event.topic == "webhook":
+        # The worker reads the event from the outbox and sends it to subscribers.
+        return WEBHOOK_FANOUT, {"event_id": event.id}
+    return event.type, dict(event.payload)
 
 
 class Publisher(Protocol):
@@ -43,10 +52,11 @@ class PubSubPublisher:
         self._topic = self._client.topic_path(project, topic)
 
     def publish(self, event: OutboxEvent) -> None:
+        message_type, payload = message_for(event)
         future = self._client.publish(
             self._topic,
-            json.dumps(event.payload).encode(),
-            type=event.type,
+            json.dumps(payload).encode(),
+            type=message_type,
             event_id=event.id,
             tenant_id=event.tenant_id,
         )
@@ -61,10 +71,10 @@ class InlinePublisher:
 
 
 def dispatch_outbox(db: Session, publisher: Publisher, limit: int = 100) -> list[OutboxEvent]:
-    """Publish unpublished processing events. Safe to run from several places at once."""
+    """Publish unpublished events. Safe to run from several places at once."""
     events = db.scalars(
         select(OutboxEvent)
-        .where(OutboxEvent.topic == "processing", OutboxEvent.published_at.is_(None))
+        .where(OutboxEvent.published_at.is_(None))
         .order_by(OutboxEvent.created_at)
         .limit(limit)
         .with_for_update(skip_locked=True)
@@ -96,6 +106,10 @@ def handle_event(
         )
     if event_type == GENERATE_REPORT:
         return run_report_job(db, storage, str(payload["report_id"]))
+    if event_type == WEBHOOK_FANOUT:
+        from app.services import webhooks
+
+        return f"sent {webhooks.fanout(db, str(payload['event_id']))}"
     logger.warning("ignoring unknown event type %s", event_type)
     return "skipped"
 
@@ -123,17 +137,20 @@ class Queue:
         from app.worker.jobs import RetryLater
 
         try:
-            with self.session_scope() as db:
-                events = [(e.type, dict(e.payload)) for e in dispatch_outbox(db, self.publisher)]
-            if not self.inline:
-                return
-            for event_type, payload in events:
+            # Jobs emit new events (e.g. evidence.processed), so locally keep going
+            # until there's nothing left, with a bound in case of a loop.
+            for _ in range(5):
                 with self.session_scope() as db:
-                    try:
-                        handle_event(db, self.storage, self.ocr, event_type, payload)
-                    except RetryLater:
-                        # No redelivery locally; `python -m app.worker drain` retries.
-                        logger.warning("job left for retry: %s", payload)
+                    events = [message_for(e) for e in dispatch_outbox(db, self.publisher)]
+                if not self.inline or not events:
+                    return
+                for event_type, payload in events:
+                    with self.session_scope() as db:
+                        try:
+                            handle_event(db, self.storage, self.ocr, event_type, payload)
+                        except RetryLater:
+                            # No redelivery locally; `python -m app.worker drain` retries.
+                            logger.warning("job left for retry: %s", payload)
         except Exception:
             logger.exception("queue kick failed; the outbox will be retried")
 

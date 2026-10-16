@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     documentai_location: str = ""
     documentai_processor_id: str = ""
 
+    # Encrypts secrets the API must read back, such as webhook signing secrets
+    # (a Fernet key: python -c "from cryptography.fernet import Fernet;
+    # print(Fernet.generate_key().decode())"). Required outside local and test.
+    secrets_key: str = ""
+
     # Browser origins allowed to call the API (the Flutter web app).
     cors_origins: list[str] = ["https://pruflo.web.app", "https://pruflo.firebaseapp.com"]
 

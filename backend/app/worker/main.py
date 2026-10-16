@@ -5,6 +5,8 @@
   subscription's maximum deliveries, moves it to the dead-letter topic.
 - POST /tasks/dispatch-outbox: Cloud Scheduler (every minute) publishes any
   outbox events the API couldn't publish straight away.
+- POST /tasks/retry-webhooks: Cloud Scheduler (every minute) re-sends failed
+  webhook deliveries on the contract's schedule.
 
 Both require a Google-signed OIDC token for one of the allowed service
 accounts. The service must not be reachable without it.
@@ -101,6 +103,9 @@ def create_worker_app() -> FastAPI:
             logger.error("dropping message %s with missing fields", message.messageId)
             return Response(status_code=204)
         logger.info("message %s: %s", message.messageId, outcome)
+        # Jobs write follow-up events (e.g. evidence.processed); send them on now
+        # rather than waiting for the next scheduled sweep.
+        dispatch_outbox(db, queue.publisher)
         return Response(status_code=204)
 
     @app.post("/tasks/dispatch-outbox", dependencies=[Depends(verify_invoker)])
@@ -108,6 +113,13 @@ def create_worker_app() -> FastAPI:
         db: Session = Depends(get_db), queue: Queue = Depends(get_queue)
     ) -> dict[str, int]:
         return {"published": len(dispatch_outbox(db, queue.publisher))}
+
+    @app.post("/tasks/retry-webhooks", dependencies=[Depends(verify_invoker)])
+    def retry_webhooks(db: Session = Depends(get_db)) -> dict[str, int]:
+        """Cloud Scheduler, every minute: re-send failed webhook deliveries that are due."""
+        from app.services import webhooks
+
+        return {"sent": webhooks.retry_due(db)}
 
     return app
 

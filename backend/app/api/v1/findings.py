@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from app.ids import new_id
 from app.pagination import Page, after_cursor, clamp_limit, next_cursor_for
 from app.services import audit, outbox
 from app.services import cases as case_service
+from app.worker.queue import Queue, get_queue
 
 router = APIRouter(prefix="/cases/{case_id}", tags=["review"])
 
@@ -233,8 +234,10 @@ def decide(
     case_id: str,
     finding_id: str,
     body: DecisionIn,
+    background: BackgroundTasks,
     principal: Principal = Depends(require(Permission.DECIDE)),
     db: Session = Depends(get_db),
+    queue: Queue = Depends(get_queue),
 ) -> FindingOut:
     """15: a person's decision. Kept forever in review_actions and the audit trail."""
     case = load_case(db, principal, case_id)
@@ -286,4 +289,5 @@ def decide(
     db.flush()
     case_service.refresh_after_review(db, case, principal)
     db.commit()
+    background.add_task(queue.kick)  # sends finding.decided and any case webhooks
     return _findings_out(db, [finding])[0]

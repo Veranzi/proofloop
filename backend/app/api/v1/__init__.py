@@ -11,6 +11,7 @@ from app.api.v1 import (
     me,
     reports,
     rules_providers,
+    webhooks,
 )
 
 router = APIRouter()
@@ -22,3 +23,4 @@ router.include_router(reports.router)
 router.include_router(api_keys.router)
 router.include_router(admin.router)
 router.include_router(rules_providers.router)
+router.include_router(webhooks.router)

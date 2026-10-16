@@ -8,6 +8,7 @@ On Cloud Run this isn't needed: Pub/Sub delivers each job to the worker.
 """
 
 import argparse
+import contextlib
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,13 +19,27 @@ from app.enums import EvidenceStatus
 from app.pipeline.ocr import get_ocr_provider
 from app.storage.backend import get_storage
 from app.worker.jobs import RetryLater, run_processing_job
-from app.worker.queue import InlinePublisher, dispatch_outbox
+from app.worker.queue import (
+    PROCESS_EVIDENCE,
+    InlinePublisher,
+    dispatch_outbox,
+    handle_event,
+    message_for,
+)
 
 WAITING = [EvidenceStatus.QUEUED, EvidenceStatus.FAILED_RETRYABLE, EvidenceStatus.EXTRACTING]
 
 
+def _send_pending_events(db: Session) -> None:
+    for message_type, payload in [message_for(e) for e in dispatch_outbox(db, InlinePublisher())]:
+        if message_type == PROCESS_EVIDENCE:
+            continue  # evidence jobs are picked up below from the evidence status
+        with contextlib.suppress(RetryLater):
+            handle_event(db, get_storage(), get_ocr_provider(), message_type, payload)
+
+
 def drain(db: Session) -> dict[str, int]:
-    dispatch_outbox(db, InlinePublisher())  # mark pending events handled
+    _send_pending_events(db)
     latest = (
         select(ProcessingJob.evidence_id, func.max(ProcessingJob.created_at).label("at"))
         .group_by(ProcessingJob.evidence_id)
@@ -48,6 +63,10 @@ def drain(db: Session) -> dict[str, int]:
         except RetryLater:
             outcome = "retry_later"
         counts[outcome] = counts.get(outcome, 0) + 1
+    _send_pending_events(db)  # e.g. evidence.processed webhooks from the jobs above
+    from app.services import webhooks
+
+    webhooks.retry_due(db)
     return counts
 
 
