@@ -81,4 +81,15 @@ class ApiEndpoints {
   // Machine-readable export of findings: ?format=json|csv
   static String caseExport(String caseId) =>
       '/v1/cases/$caseId/export'; // 50 GET
+
+  // Notifications, profile photo and customer picker
+  static const notifications = '/v1/me/notifications'; // 51 GET
+  static String notificationRead(String id) =>
+      '/v1/me/notifications/$id/read'; // 52 POST
+  static const notificationsReadAll =
+      '/v1/me/notifications/read-all'; // 53 POST
+  static const avatarUploadUrl = '/v1/me/avatar/upload-url'; // 54 POST
+  static const avatarComplete = '/v1/me/avatar/complete'; // 55 POST
+  static const avatar = '/v1/me/avatar'; // 56 DELETE
+  static const customers = '/v1/customers'; // 57 GET
 }
