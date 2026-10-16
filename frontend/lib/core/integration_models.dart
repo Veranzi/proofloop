@@ -2,9 +2,15 @@
 /// reconciliation rules and processing providers).
 ///
 /// Field names follow the JSON contract in
-/// Docs/Integrations_API_Contract.md, so swapping the mock data for real
-/// API responses only needs `fromJson` constructors.
+/// Docs/Integrations_API_Contract.md.
 library;
+
+DateTime _date(Object? v) => DateTime.parse(v as String).toLocal();
+DateTime? _dateOrNull(Object? v) => v == null ? null : _date(v);
+
+T _byWire<T extends Enum>(List<T> values, String Function(T) wire, Object? v,
+        T fallback) =>
+    values.firstWhere((e) => wire(e) == v, orElse: () => fallback);
 
 /// Permission a system-to-system API key can be given.
 enum ApiScope {
@@ -33,6 +39,21 @@ class ApiKey {
     this.revoked = false,
   });
 
+  factory ApiKey.fromJson(Map<String, dynamic> j) => ApiKey(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        prefix: j['prefix'] as String,
+        scopes: {
+          for (final s in j['scopes'] as List)
+            for (final scope in ApiScope.values)
+              if (scope.wire == s) scope,
+        },
+        createdAt: _date(j['created_at']),
+        createdBy: ((j['created_by'] as Map?)?['name'] as String?) ?? '',
+        lastUsedAt: _dateOrNull(j['last_used_at']),
+        revoked: (j['revoked'] as bool?) ?? false,
+      );
+
   final String id;
   final String name;
 
@@ -44,17 +65,6 @@ class ApiKey {
   final String createdBy;
   final DateTime? lastUsedAt;
   final bool revoked;
-
-  ApiKey copyWith({bool? revoked}) => ApiKey(
-    id: id,
-    name: name,
-    prefix: prefix,
-    scopes: scopes,
-    createdAt: createdAt,
-    createdBy: createdBy,
-    lastUsedAt: lastUsedAt,
-    revoked: revoked ?? this.revoked,
-  );
 }
 
 /// Events PruFlo sends to webhook endpoints.
@@ -82,7 +92,15 @@ class WebhookDelivery {
     this.attempt = 1,
   });
 
-  final WebhookEvent event;
+  factory WebhookDelivery.fromJson(Map<String, dynamic> j) => WebhookDelivery(
+        event: j['event'] as String,
+        statusCode: (j['status_code'] as int?) ?? 0,
+        at: _date(j['at']),
+        attempt: (j['attempt'] as int?) ?? 1,
+      );
+
+  /// Event wire value, e.g. `finding.decided` or `ping`.
+  final String event;
 
   /// HTTP status returned by the receiver; 0 when it could not be reached.
   final int statusCode;
@@ -103,6 +121,23 @@ class WebhookEndpoint {
     this.deliveries = const [],
   });
 
+  factory WebhookEndpoint.fromJson(Map<String, dynamic> j) => WebhookEndpoint(
+        id: j['id'] as String,
+        url: j['url'] as String,
+        description: (j['description'] as String?) ?? '',
+        events: {
+          for (final e in j['events'] as List)
+            for (final ev in WebhookEvent.values)
+              if (ev.wire == e) ev,
+        },
+        active: (j['active'] as bool?) ?? true,
+        createdAt: _date(j['created_at']),
+        deliveries: [
+          for (final d in (j['recent_deliveries'] as List?) ?? const [])
+            WebhookDelivery.fromJson(d as Map<String, dynamic>),
+        ],
+      );
+
   final String id;
   final String url;
   final String description;
@@ -112,17 +147,6 @@ class WebhookEndpoint {
 
   /// Most recent first.
   final List<WebhookDelivery> deliveries;
-
-  WebhookEndpoint copyWith({bool? active, List<WebhookDelivery>? deliveries}) =>
-      WebhookEndpoint(
-        id: id,
-        url: url,
-        description: description,
-        events: events,
-        createdAt: createdAt,
-        active: active ?? this.active,
-        deliveries: deliveries ?? this.deliveries,
-      );
 }
 
 /// Places documents can be pulled in from.
@@ -159,7 +183,15 @@ enum ConnectorKind {
   final String description;
 }
 
-enum ConnectorStatus { notConnected, connected, error, comingSoon }
+enum ConnectorStatus {
+  notConnected('not_connected'),
+  connected('connected'),
+  error('error'),
+  comingSoon('coming_soon');
+
+  const ConnectorStatus(this.wire);
+  final String wire;
+}
 
 class Connector {
   const Connector({
@@ -168,6 +200,19 @@ class Connector {
     this.detail = '',
     this.connectedAt,
   });
+
+  /// Null for kinds this app doesn't know yet (the API may add some).
+  static Connector? fromJson(Map<String, dynamic> j) {
+    final kind = ConnectorKind.values.where((k) => k.wire == j['kind']);
+    if (kind.isEmpty) return null;
+    return Connector(
+      kind: kind.first,
+      status: _byWire(ConnectorStatus.values, (s) => s.wire, j['status'],
+          ConnectorStatus.comingSoon),
+      detail: (j['detail'] as String?) ?? '',
+      connectedAt: _dateOrNull(j['connected_at']),
+    );
+  }
 
   final ConnectorKind kind;
   final ConnectorStatus status;
@@ -185,6 +230,13 @@ class RuleParam {
     required this.value,
     this.suffix = '',
   });
+
+  factory RuleParam.fromJson(Map<String, dynamic> j) => RuleParam(
+        key: j['key'] as String,
+        label: (j['label'] as String?) ?? j['key'] as String,
+        value: '${j['value'] ?? ''}',
+        suffix: (j['suffix'] as String?) ?? '',
+      );
 
   final String key;
   final String label;
@@ -210,6 +262,20 @@ class ReconciliationRule {
     this.enabled = true,
   });
 
+  factory ReconciliationRule.fromJson(Map<String, dynamic> j) =>
+      ReconciliationRule(
+        id: j['id'] as String,
+        template: j['template'] as String,
+        name: (j['name'] as String?) ?? j['template'] as String,
+        description: (j['description'] as String?) ?? '',
+        version: (j['version'] as int?) ?? 1,
+        enabled: (j['enabled'] as bool?) ?? true,
+        params: [
+          for (final p in (j['params'] as List?) ?? const [])
+            RuleParam.fromJson(p as Map<String, dynamic>),
+        ],
+      );
+
   final String id;
 
   /// Rule implementation in the backend, e.g. `quantity_shortfall`.
@@ -222,16 +288,6 @@ class ReconciliationRule {
   final List<RuleParam> params;
   final bool enabled;
 
-  ReconciliationRule copyWith({bool? enabled, List<RuleParam>? params}) =>
-      ReconciliationRule(
-        id: id,
-        template: template,
-        name: name,
-        description: description,
-        version: params == null ? version : version + 1,
-        params: params ?? this.params,
-        enabled: enabled ?? this.enabled,
-      );
 }
 
 enum OcrProvider {
@@ -273,6 +329,19 @@ class ProviderSettings {
     required this.region,
   });
 
+  factory ProviderSettings.fromJson(Map<String, dynamic> j) =>
+      ProviderSettings(
+        ocr: _byWire(OcrProvider.values, (p) => p.wire, j['ocr'],
+            OcrProvider.googleDocumentAi),
+        ai: _byWire(AiProvider.values, (p) => p.wire, j['ai'],
+            AiProvider.vertexGemini),
+        model: j['model'] as String,
+        region: j['region'] as String,
+      );
+
+  Map<String, dynamic> toJson() =>
+      {'ocr': ocr.wire, 'ai': ai.wire, 'model': model, 'region': region};
+
   final OcrProvider ocr;
   final AiProvider ai;
 
@@ -280,3 +349,16 @@ class ProviderSettings {
   final String model;
   final String region;
 }
+
+/// Regions offered for processing (Docs/backend_plan.md, Step 0).
+const processingRegions = [
+  ProcessingRegion('asia-southeast1', 'Singapore (asia-southeast1)'),
+  ProcessingRegion('asia-southeast2', 'Jakarta (asia-southeast2)'),
+];
+
+String regionLabel(String id) => processingRegions
+    .firstWhere((r) => r.id == id, orElse: () => ProcessingRegion(id, id))
+    .label;
+
+/// Models the API accepts (a server-side allowlist).
+const allowedModels = ['gemini-2.5-flash', 'gemini-2.5-pro'];

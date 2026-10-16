@@ -20,6 +20,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _busy = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -32,14 +33,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final email = _email.text.trim();
-    await AuthService.instance.signUp(_name.text.trim(), email, _password.text);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    // New accounts confirm their email before the first sign-in.
-    context.go(Uri(path: '/verify-email', queryParameters: {'email': email})
-        .toString());
+    try {
+      await AuthService.instance
+          .signUp(_name.text.trim(), email, _password.text);
+      if (!mounted) return;
+      // New accounts confirm their email before the first sign-in.
+      context.go(Uri(path: '/verify-email', queryParameters: {'email': email})
+          .toString());
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -85,6 +95,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   v != _password.text ? 'Passwords do not match' : null,
             ),
             const SizedBox(height: 24),
+            if (_error != null) ...[
+              Text(_error!,
+                  style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+              const SizedBox(height: 12),
+            ],
             FilledButton(
               onPressed: _busy ? null : _submit,
               child: _busy

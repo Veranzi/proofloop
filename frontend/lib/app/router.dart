@@ -67,6 +67,7 @@ final appRouter = GoRouter(
           path: '/cases',
           builder: (context, state) => CasesScreen(
             openNewCase: state.uri.queryParameters['new'] == '1',
+            initialQuery: state.uri.queryParameters['q'],
           ),
         ),
         GoRoute(
