@@ -32,9 +32,17 @@ class AppConfig {
   static const appCheckSiteKey =
       String.fromEnvironment('FIREBASE_APP_CHECK_SITE_KEY');
 
+  /// Web push VAPID key (Firebase console → Cloud Messaging → Web Push
+  /// certificates). When set together with the Firebase config, the app asks
+  /// for notification permission after sign-in and registers the device for
+  /// push (POST /v1/devices). Empty: no push, in-app notifications only.
+  static const vapidKey = String.fromEnvironment('FIREBASE_VAPID_KEY');
+
   /// Without a Firebase API key the app uses development sign-in, which the
   /// API accepts only when it runs with PRUFLO_ENV=local.
   static bool get firebaseConfigured => _firebaseApiKey.isNotEmpty;
+
+  static bool get pushConfigured => firebaseConfigured && vapidKey.isNotEmpty;
 
   static FirebaseOptions get firebaseOptions => const FirebaseOptions(
         apiKey: _firebaseApiKey,

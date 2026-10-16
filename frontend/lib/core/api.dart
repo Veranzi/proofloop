@@ -33,13 +33,19 @@ class PrufloApi {
   /// 1
   Future<AppUser> me() async => AppUser.fromJson(await _api.get(ApiEndpoints.me));
 
-  /// 21: name, phone and job title only; role and email are managed by admins.
-  Future<AppUser> updateMe(
-          {String? name, String? phone, String? jobTitle}) async =>
+  /// 21: name, phone, job title and notification preferences; role and email
+  /// are managed by admins. Preferences are merged, so send only the changes.
+  Future<AppUser> updateMe({
+    String? name,
+    String? phone,
+    String? jobTitle,
+    Map<String, bool>? notificationPreferences,
+  }) async =>
       AppUser.fromJson(await _api.patch(ApiEndpoints.me, {
         'name': ?name,
         'phone': ?phone,
         'job_title': ?jobTitle,
+        'notification_preferences': ?notificationPreferences,
       }));
 
   /// 23
@@ -88,6 +94,7 @@ class PrufloApi {
     String description = '',
     Priority priority = Priority.medium,
     String? assignedTo,
+    String? customerId,
   }) async =>
       CaseItem.fromJson(await _api.post(ApiEndpoints.cases, {
         'title': title,
@@ -95,6 +102,7 @@ class PrufloApi {
         'description': description,
         'priority': priority.name,
         'assigned_to': ?assignedTo,
+        'customer_id': ?customerId,
       }));
 
   /// 5
@@ -239,4 +247,112 @@ class PrufloApi {
   /// 27: removes them from this organisation.
   Future<void> removeUser(String userId) =>
       _api.delete(ApiEndpoints.adminUser(userId));
+
+  /// 28
+  Future<Page<Customer>> adminCustomers({String? cursor, int limit = 50}) async =>
+      Page.fromJson(
+          await _api.get(ApiEndpoints.adminCustomers,
+              query: {'limit': '$limit', 'cursor': ?cursor}),
+          Customer.fromJson);
+
+  /// 29
+  Future<Customer> createCustomer(
+          {required String name, String contactEmail = ''}) async =>
+      Customer.fromJson(await _api.post(ApiEndpoints.adminCustomers,
+          {'name': name, 'contact_email': contactEmail}));
+
+  /// 30
+  Future<Customer> updateCustomer(String customerId,
+          {String? name, String? contactEmail}) async =>
+      Customer.fromJson(await _api.patch(ApiEndpoints.adminCustomer(customerId), {
+        'name': ?name,
+        'contact_email': ?contactEmail,
+      }));
+
+  /// 31
+  Future<List<CaseMember>> caseMembers(String caseId) async {
+    final body = await _api.get(ApiEndpoints.adminCaseMembers(caseId));
+    return [
+      for (final m in body['items'] as List)
+        CaseMember.fromJson(m as Map<String, dynamic>)
+    ];
+  }
+
+  /// 32: replaces the members with exactly these users.
+  Future<List<CaseMember>> setCaseMembers(
+      String caseId, List<String> userIds) async {
+    final body = await _api
+        .put(ApiEndpoints.adminCaseMembers(caseId), {'user_ids': userIds});
+    return [
+      for (final m in body['items'] as List)
+        CaseMember.fromJson(m as Map<String, dynamic>)
+    ];
+  }
+
+  /// 33: newest first.
+  Future<Page<AuditEntry>> audit(
+          {String? action, String? caseId, String? cursor, int limit = 50}) async =>
+      Page.fromJson(
+          await _api.get(ApiEndpoints.adminAudit, query: {
+            'limit': '$limit',
+            if (action != null && action.trim().isNotEmpty)
+              'action': action.trim(),
+            'case_id': ?caseId,
+            'cursor': ?cursor,
+          }),
+          AuditEntry.fromJson);
+
+  // Notifications, profile photo and customer picker -----------------------
+
+  /// 51
+  Future<NotificationPage> notifications(
+          {bool unreadOnly = false, String? cursor, int limit = 20}) async =>
+      NotificationPage.fromJson(await _api.get(ApiEndpoints.notifications,
+          query: {
+            'limit': '$limit',
+            if (unreadOnly) 'unread_only': 'true',
+            'cursor': ?cursor,
+          }));
+
+  /// 52
+  Future<AppNotification> markNotificationRead(String id) async =>
+      AppNotification.fromJson(
+          await _api.post(ApiEndpoints.notificationRead(id)));
+
+  /// 53
+  Future<int> markAllNotificationsRead() async =>
+      ((await _api.post(ApiEndpoints.notificationsReadAll))['updated']
+          as int?) ??
+      0;
+
+  /// 54, PUT, 55: returns the profile with the new photo link.
+  Future<AppUser> uploadAvatar(Uint8List bytes, String contentType) async {
+    final slot = await _api.post(ApiEndpoints.avatarUploadUrl,
+        {'content_type': contentType, 'size_bytes': bytes.length});
+    await _api.putSigned(
+      slot['upload_url'] as String,
+      bytes,
+      Map<String, String>.from(slot['headers'] as Map),
+    );
+    return AppUser.fromJson(await _api.post(ApiEndpoints.avatarComplete));
+  }
+
+  /// 56
+  Future<void> removeAvatar() => _api.delete(ApiEndpoints.avatar);
+
+  /// 57: any member may list customers, for pickers.
+  Future<List<Customer>> customers() async {
+    final page =
+        await _api.get(ApiEndpoints.customers, query: {'limit': '200'});
+    return Page.fromJson(page, Customer.fromJson).items;
+  }
+
+  /// 2: register a push token (FCM) for this device.
+  Future<String> registerDevice(String token, {String platform = 'web'}) async =>
+      (await _api.post(ApiEndpoints.devices,
+          {'token': token, 'platform': platform}))['id'] as String;
+
+  /// 22
+  Future<void> removeDevice(String deviceId) =>
+      _api.delete(ApiEndpoints.device(deviceId));
 }

@@ -92,6 +92,8 @@ class AppUser {
     this.active = true,
     this.phone = '',
     this.jobTitle = '',
+    this.avatarUrl,
+    this.notificationPreferences = const {},
   });
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -102,6 +104,25 @@ class AppUser {
         active: (j['active'] as bool?) ?? true,
         phone: (j['phone'] as String?) ?? '',
         jobTitle: (j['job_title'] as String?) ?? '',
+        avatarUrl: j['avatar_url'] as String?,
+        notificationPreferences: {
+          for (final e in ((j['notification_preferences'] as Map?) ?? const {})
+              .entries)
+            e.key as String: e.value == true,
+        },
+      );
+
+  AppUser copyWith({Map<String, bool>? notificationPreferences}) => AppUser(
+        id: id,
+        name: name,
+        email: email,
+        role: role,
+        active: active,
+        phone: phone,
+        jobTitle: jobTitle,
+        avatarUrl: avatarUrl,
+        notificationPreferences:
+            notificationPreferences ?? this.notificationPreferences,
       );
 
   final String id;
@@ -111,6 +132,13 @@ class AppUser {
   final bool active;
   final String phone;
   final String jobTitle;
+
+  /// A short-lived link to the profile photo (about 10 minutes), or null.
+  final String? avatarUrl;
+
+  /// Which notifications this person gets, keyed by [NotificationKind.wire]
+  /// plus `push`. See Docs/API_Contract.md, endpoints 51–57.
+  final Map<String, bool> notificationPreferences;
 
   /// The name, or the email when no name has been set yet.
   String get displayName => name.trim().isNotEmpty ? name.trim() : email;
@@ -140,6 +168,7 @@ class CaseItem {
     required this.version,
     this.assignedTo,
     this.customerId,
+    this.customerName,
   });
 
   factory CaseItem.fromJson(Map<String, dynamic> j) => CaseItem(
@@ -155,6 +184,7 @@ class CaseItem {
         version: (j['version'] as int?) ?? 1,
         assignedTo: PersonRef.fromJson(j['assigned_to']),
         customerId: j['customer_id'] as String?,
+        customerName: j['customer_name'] as String?,
       );
 
   /// Opaque API ID (case_...) used in routes and calls.
@@ -172,6 +202,7 @@ class CaseItem {
   final int version;
   final PersonRef? assignedTo;
   final String? customerId;
+  final String? customerName;
 }
 
 /// An evidence file, from GET /v1/cases/{caseId}/evidence.
@@ -537,5 +568,194 @@ class OrgUser {
         .where((p) => p.isNotEmpty)
         .take(2);
     return parts.map((p) => p[0].toUpperCase()).join();
+  }
+}
+
+/// What a notification is about (Docs/API_Contract.md, endpoint 51).
+enum NotificationKind {
+  evidenceProcessed('evidence_processed'),
+  caseAssigned('case_assigned'),
+  caseInReview('case_in_review'),
+  reportReady('report_ready'),
+  weeklySummary('weekly_summary');
+
+  const NotificationKind(this.wire);
+  final String wire;
+
+  static NotificationKind? fromWire(String v) =>
+      values.where((k) => k.wire == v).firstOrNull;
+}
+
+/// One item in the notifications bell, from GET /v1/me/notifications.
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.body,
+    required this.read,
+    required this.createdAt,
+    this.caseId,
+    this.caseReference,
+    this.link,
+  });
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
+        id: j['id'] as String,
+        kind: NotificationKind.fromWire(j['kind'] as String),
+        title: j['title'] as String,
+        body: (j['body'] as String?) ?? '',
+        read: (j['read'] as bool?) ?? false,
+        createdAt: _date(j['created_at']),
+        caseId: j['case_id'] as String?,
+        caseReference: j['case_reference'] as String?,
+        link: j['link'] as String?,
+      );
+
+  AppNotification markedRead() => AppNotification(
+        id: id,
+        kind: kind,
+        title: title,
+        body: body,
+        read: true,
+        createdAt: createdAt,
+        caseId: caseId,
+        caseReference: caseReference,
+        link: link,
+      );
+
+  final String id;
+
+  /// Null for a kind this build doesn't know yet; it's still shown.
+  final NotificationKind? kind;
+  final String title;
+  final String body;
+  final bool read;
+  final DateTime createdAt;
+  final String? caseId;
+  final String? caseReference;
+
+  /// An app route such as `/cases/case_...`.
+  final String? link;
+}
+
+/// GET /v1/me/notifications also returns how many are unread.
+class NotificationPage {
+  const NotificationPage(this.items, this.nextCursor, this.unreadCount);
+
+  factory NotificationPage.fromJson(Map<String, dynamic> j) =>
+      NotificationPage(
+        [
+          for (final e in j['items'] as List)
+            AppNotification.fromJson(e as Map<String, dynamic>)
+        ],
+        j['next_cursor'] as String?,
+        (j['unread_count'] as int?) ?? 0,
+      );
+
+  final List<AppNotification> items;
+  final String? nextCursor;
+  final int unreadCount;
+}
+
+/// A customer cases can be filed under (endpoints 28–30 and 57).
+class Customer {
+  const Customer({
+    required this.id,
+    required this.name,
+    this.contactEmail = '',
+    this.createdAt,
+  });
+
+  factory Customer.fromJson(Map<String, dynamic> j) => Customer(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        contactEmail: (j['contact_email'] as String?) ?? '',
+        createdAt: _dateOrNull(j['created_at']),
+      );
+
+  final String id;
+  final String name;
+  final String contactEmail;
+
+  /// Only in the admin list (28); the picker (57) leaves it out.
+  final DateTime? createdAt;
+}
+
+/// A member of a case, from GET /v1/admin/cases/{caseId}/members (31).
+class CaseMember {
+  const CaseMember({
+    required this.uid,
+    required this.name,
+    required this.email,
+    required this.role,
+  });
+
+  factory CaseMember.fromJson(Map<String, dynamic> j) => CaseMember(
+        uid: j['uid'] as String,
+        name: (j['name'] as String?) ?? '',
+        email: (j['email'] as String?) ?? '',
+        role: UserRole.fromWire(j['role'] as String),
+      );
+
+  final String uid;
+  final String name;
+  final String email;
+  final UserRole role;
+
+  String get displayName => name.trim().isNotEmpty ? name.trim() : email;
+}
+
+/// One line of the organisation's audit log (33).
+class AuditEntry {
+  const AuditEntry({
+    required this.id,
+    required this.action,
+    required this.at,
+    required this.actorType,
+    required this.targetType,
+    required this.targetId,
+    this.actor,
+    this.caseId,
+    this.details = const {},
+  });
+
+  factory AuditEntry.fromJson(Map<String, dynamic> j) => AuditEntry(
+        id: j['id'] as String,
+        action: j['action'] as String,
+        at: _date(j['at']),
+        actorType: (j['actor_type'] as String?) ?? 'system',
+        actor: PersonRef.fromJson(j['actor']),
+        targetType: (j['target_type'] as String?) ?? '',
+        targetId: (j['target_id'] as String?) ?? '',
+        caseId: j['case_id'] as String?,
+        details: (j['details'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+
+  final String id;
+
+  /// e.g. `case.created`, `finding.decided`, `user.invited`.
+  final String action;
+  final DateTime at;
+
+  /// `person`, `api_key` or `system`.
+  final String actorType;
+  final PersonRef? actor;
+  final String targetType;
+  final String targetId;
+  final String? caseId;
+  final Map<String, dynamic> details;
+
+  /// Who did it, for people to read.
+  String get actorLabel => switch (actorType) {
+        'person' => actor?.name.isNotEmpty == true ? actor!.name : 'Someone',
+        'api_key' => 'API key',
+        _ => 'System',
+      };
+
+  /// `case.status_changed` reads as "Case status changed".
+  String get actionLabel {
+    final words = action.replaceAll('.', ' ').replaceAll('_', ' ').trim();
+    return words.isEmpty ? action : words[0].toUpperCase() + words.substring(1);
   }
 }

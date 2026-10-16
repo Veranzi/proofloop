@@ -4,11 +4,13 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'api_client.dart';
 import 'config.dart';
 import 'models.dart';
+import 'push_service.dart';
 
 /// What happened after a sign-in attempt.
 enum SignInResult { signedIn, needsEmailVerification }
@@ -48,10 +50,25 @@ class AuthService extends ChangeNotifier {
     return u != null && !u.emailVerified ? u.email : null;
   }
 
-  /// Call once from main() before runApp.
+  /// Where development sign-in remembers who is signed in, so a page reload
+  /// keeps the session. Firebase Auth persists its own session.
+  static const _devEmailKey = 'pruflo.dev_email';
+
+  /// Call once on launch. [ready] turns true when the saved session (if
+  /// any) has been restored or rejected.
   Future<void> init() async {
     ApiClient.instance.tokenProvider = _idToken;
     if (!usesFirebase) {
+      final saved =
+          (await SharedPreferences.getInstance()).getString(_devEmailKey);
+      if (saved != null && saved.isNotEmpty) {
+        _devEmail = saved;
+        try {
+          await _loadMe();
+        } on AuthException {
+          // Rejected (no longer invited) or the API is down: show sign-in.
+        }
+      }
       _ready = true;
       notifyListeners();
       return;
@@ -110,26 +127,38 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Loads the profile and role. 403 not_invited signs the person out again.
+  /// Loads the profile and role. If the API refuses the person (401, or 403
+  /// such as not_invited) the session is cleared. Any other failure, such as
+  /// the API being unreachable, leaves the saved session for the next try.
   Future<void> _loadMe() async {
+    final wasSignedIn = _user != null;
     try {
       _setUser(await PrufloApi().me());
     } on ApiException catch (e) {
-      await _clearSession();
+      if (e.status == 401 || e.status == 403) {
+        await _clearSession();
+      } else {
+        _setUser(null);
+      }
       throw AuthException(e.message);
     }
+    if (!wasSignedIn) unawaited(PushService.instance.register());
   }
 
   Future<void> _clearSession() async {
     _devEmail = null;
+    await (await SharedPreferences.getInstance()).remove(_devEmailKey);
     if (usesFirebase) await FirebaseAuth.instance.signOut();
     _setUser(null);
   }
 
   Future<SignInResult> signIn(String email, String password) async {
     if (!usesFirebase) {
-      _devEmail = email.trim().toLowerCase();
+      final normalised = email.trim().toLowerCase();
+      _devEmail = normalised;
       await _loadMe();
+      await (await SharedPreferences.getInstance())
+          .setString(_devEmailKey, normalised);
       return SignInResult.signedIn;
     }
     final cred = await _firebase(() => FirebaseAuth.instance
@@ -199,7 +228,10 @@ class AuthService extends ChangeNotifier {
 
   void updateProfile(AppUser updated) => _setUser(updated);
 
-  Future<void> signOut() => _clearSession();
+  Future<void> signOut() async {
+    if (_user != null) await PushService.instance.unregister();
+    await _clearSession();
+  }
 
   Future<T> _firebase<T>(Future<T> Function() call) async {
     try {
