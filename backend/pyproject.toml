@@ -22,7 +22,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["app/db/migrations/"]
 
 [[tool.mypy.overrides]]
-module = ["firebase_admin.*", "google.cloud.*"]
+module = ["firebase_admin.*", "google.cloud.*", "google.auth.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

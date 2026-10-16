@@ -6,7 +6,9 @@ then apply case-level authorization. See Docs/backend_plan.md.
 
 from fastapi import FastAPI
 
+from app.api.v1 import local_objects
 from app.api.v1 import router as v1_router
+from app.config import get_settings
 from app.errors import install_error_handlers
 from app.logging import configure_logging
 from app.middleware import install_request_middleware
@@ -23,6 +25,9 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(v1_router, prefix="/v1")
+    if get_settings().env in ("local", "test"):
+        # Stands in for signed Cloud Storage URLs; never mounted in the cloud.
+        app.include_router(local_objects.router, prefix="/v1")
     return app
 
 

@@ -8,6 +8,7 @@ Each test runs inside a transaction that is rolled back afterwards.
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from alembic import command
@@ -17,6 +18,7 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.storage.backend import LocalStorage
 from tests.factories import Factory
 
 os.environ.setdefault("PRUFLO_ENV", "test")
@@ -69,14 +71,21 @@ def db(connection: Connection) -> Iterator[Session]:
 
 
 @pytest.fixture
-def client(db: Session) -> Iterator[TestClient]:
+def storage(tmp_path: Path) -> LocalStorage:
+    return LocalStorage(str(tmp_path / "objects"), "test-signing-key", "http://testserver")
+
+
+@pytest.fixture
+def client(db: Session, storage: LocalStorage) -> Iterator[TestClient]:
     """The API, using the test's session so everything rolls back afterwards."""
     from app.auth.api_keys import rate_limiter
     from app.db.session import get_db
     from app.main import create_app
+    from app.storage.backend import get_storage
 
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_storage] = lambda: storage
     rate_limiter.reset()
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client

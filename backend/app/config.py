@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     evidence_bucket: str = "pruflo-evidence-local"
     pubsub_topic: str = "evidence-jobs"
     signed_url_minutes: int = 10
+    # "gcs" on Cloud Run; "local" stores files on disk and serves uploads from this API.
+    storage_backend: Literal["gcs", "local"] = "local"
+    local_storage_dir: str = ".local-storage"
+    # Signs local upload links. Local and test only; GCS uses Google-signed URLs.
+    local_signing_key: str = "local-dev-only"  # noqa: S105
+    public_base_url: str = "http://localhost:8000"
 
     # Local only: accept "Bearer dev:<uid>:<email>" in place of a Firebase token.
     # Refused outside local and test environments (see app.auth.firebase).
