@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     db_port: int = 5433
     db_name: str = "pruflo"
     gcp_project: str = "pruflo-local"
+    # The Firebase project whose sign-in tokens are accepted (login-register-125ef for
+    # pruflo.web.app). Defaults to gcp_project when they are the same project.
+    firebase_project: str = ""
     region: str = "asia-southeast1"
     evidence_bucket: str = "pruflo-evidence-local"
     pubsub_topic: str = "evidence-jobs"
