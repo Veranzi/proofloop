@@ -4,13 +4,37 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme.dart';
 import '../../core/auth_service.dart';
 import '../../core/formatters.dart';
-import '../../core/mock_repository.dart';
+import '../../core/api.dart';
 import '../../core/models.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/case_tile.dart';
 import '../../widgets/page_header.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardData {
+  const _DashboardData(this.cases, this.truncated, this.activity);
+  final List<CaseItem> cases; // newest first
+  final bool truncated;
+  final List<ActivityItem> activity;
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final _api = PrufloApi();
+  late Future<_DashboardData> _future = _load();
+
+  Future<_DashboardData> _load() async {
+    final (cases, truncated) = await _api.allCases();
+    final activity = await _api.activity(limit: 6);
+    return _DashboardData(cases, truncated, activity);
+  }
+
+  void _reload() => setState(() => _future = _load());
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -21,11 +45,32 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final repo = MockRepository.instance;
-    final cases = repo.cases();
     final user = AuthService.instance.user;
     final wide = MediaQuery.sizeOf(context).width >= 1100;
 
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PageHeader(
+            title: user == null
+                ? _greeting()
+                : '${_greeting()}, ${user.firstName}',
+            subtitle: "Here's what's happening with your cases.",
+          ),
+          AsyncView<_DashboardData>(
+            future: _future,
+            onRetry: _reload,
+            builder: (context, data) => _content(context, data, wide),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, _DashboardData data, bool wide) {
+    final cases = data.cases;
     int count(CaseStatus s) => cases.where((c) => c.status == s).length;
     final stats = [
       _Stat('Total Cases', cases.length, AppColors.textSecondary),
@@ -34,6 +79,7 @@ class DashboardScreen extends StatelessWidget {
           AppColors.warning),
       _Stat('Completed', count(CaseStatus.completed), AppColors.success),
     ];
+    final canEdit = AuthService.instance.user?.role.canEditCases ?? false;
 
     final recentCases = SectionCard(
       title: 'Recent Cases',
@@ -41,74 +87,83 @@ class DashboardScreen extends StatelessWidget {
         onPressed: () => context.go('/cases'),
         child: const Text('View all'),
       ),
-      child: Column(
-        children: [for (final c in cases.take(4)) CaseTile(c)],
-      ),
+      child: cases.isEmpty
+          ? EmptyPanel(
+              title: 'No cases yet',
+              message: canEdit
+                  ? 'Create a case to start collecting evidence.'
+                  : 'Cases you are added to will appear here.',
+            )
+          : Column(children: [for (final c in cases.take(4)) CaseTile(c)]),
     );
 
     final sidePanel = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionCard(
-          title: 'Quick Actions',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              FilledButton(
-                onPressed: () => context.go('/evidence'),
-                child: const Text('Upload Evidence'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                onPressed: () => context.go('/cases?new=1'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
+        if (canEdit) ...[
+          SectionCard(
+            title: 'Quick Actions',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton(
+                  onPressed: () => context.go('/evidence'),
+                  child: const Text('Upload Evidence'),
                 ),
-                child: const Text('Create New Case'),
-              ),
-            ],
+                const SizedBox(height: 10),
+                OutlinedButton(
+                  onPressed: () => context.go('/cases?new=1'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                  ),
+                  child: const Text('Create New Case'),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
+        ],
         SectionCard(
           title: 'Recent Activity',
-          child: Column(
-            children: [
-              for (final a in repo.activity()) _ActivityRow(a),
-            ],
-          ),
+          child: data.activity.isEmpty
+              ? const EmptyPanel(
+                  title: 'No activity yet',
+                  message: 'Your uploads, decisions and reports show here.',
+                )
+              : Column(
+                  children: [for (final a in data.activity) _ActivityRow(a)],
+                ),
         ),
       ],
     );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PageHeader(
-            title: '${_greeting()}, ${user?.firstName ?? 'there'}',
-            subtitle: "Here's what's happening with your cases.",
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _StatGrid(stats),
+        if (data.truncated)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('Counts include your 1,000 most recent cases.',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
           ),
-          _StatGrid(stats),
-          const SizedBox(height: 20),
-          if (wide)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 3, child: recentCases),
-                const SizedBox(width: 20),
-                Expanded(flex: 2, child: sidePanel),
-              ],
-            )
-          else ...[
-            recentCases,
-            const SizedBox(height: 16),
-            sidePanel,
-          ],
+        const SizedBox(height: 20),
+        if (wide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: recentCases),
+              const SizedBox(width: 20),
+              Expanded(flex: 2, child: sidePanel),
+            ],
+          )
+        else ...[
+          recentCases,
+          const SizedBox(height: 16),
+          sidePanel,
         ],
-      ),
+      ],
     );
   }
 }
@@ -193,9 +248,10 @@ class _ActivityRow extends StatelessWidget {
                 Text(item.title,
                     style: const TextStyle(
                         fontSize: 13, fontWeight: FontWeight.w500)),
-                Text('Case #${item.caseId}',
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary)),
+                if (item.caseReference != null)
+                  Text('Case #${item.caseReference}',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
               ],
             ),
           ),
