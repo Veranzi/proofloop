@@ -11,7 +11,7 @@ from app.config import get_settings
 def get_engine() -> Engine:
     # Small pool per instance: total connections = pool size x Cloud Run max instances.
     return create_engine(
-        get_settings().database_url, pool_size=5, max_overflow=5, pool_pre_ping=True
+        get_settings().sqlalchemy_url, pool_size=5, max_overflow=5, pool_pre_ping=True
     )
 
 

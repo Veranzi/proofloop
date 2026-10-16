@@ -4,10 +4,13 @@ On Cloud Run, secrets (such as the database URL) are mounted from Secret
 Manager as environment variables, so the code reads them the same way.
 """
 
+import secrets
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
 
 # Upload limits shared with the frontend (Docs/backend_plan.md, Step 0).
 MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -19,7 +22,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PRUFLO_", env_file=".env", extra="ignore")
 
     env: Literal["local", "test", "dev", "staging", "prod"] = "local"
-    database_url: str = "postgresql+psycopg://pruflo:pruflo@localhost:5433/pruflo"
+    # On Cloud Run the full URL comes from Secret Manager as PRUFLO_DATABASE_URL.
+    # Locally it's built from the parts below; the password lives only in the
+    # git-ignored backend/.env, which docker-compose.yml reads too.
+    database_url: str = ""
+    db_user: str = "pruflo"
+    db_password: str = ""
+    db_host: str = "localhost"
+    db_port: int = 5433
+    db_name: str = "pruflo"
     gcp_project: str = "pruflo-local"
     region: str = "asia-southeast1"
     evidence_bucket: str = "pruflo-evidence-local"
@@ -29,7 +40,7 @@ class Settings(BaseSettings):
     storage_backend: Literal["gcs", "local"] = "local"
     local_storage_dir: str = ".local-storage"
     # Signs local upload links. Local and test only; GCS uses Google-signed URLs.
-    local_signing_key: str = "local-dev-only"  # noqa: S105
+    local_signing_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     public_base_url: str = "http://localhost:8000"
     # Browser origins allowed to call the API (the Flutter web app).
     cors_origins: list[str] = ["https://pruflo.web.app", "https://pruflo.firebaseapp.com"]
@@ -39,6 +50,19 @@ class Settings(BaseSettings):
     auth_dev_mode: bool = False
     # App Check is skipped in local and test, and enforced everywhere else.
     app_check_required: bool = True
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        return URL.create(
+            "postgresql+psycopg",
+            username=self.db_user,
+            password=self.db_password or None,
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+        ).render_as_string(hide_password=False)
 
 
 @lru_cache

@@ -18,7 +18,7 @@ docker compose up -d                 # Postgres, Pub/Sub emulator, fake Cloud St
 python3.12 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-cp .env.example .env
+cp .env.example .env                 # then set PRUFLO_DB_PASSWORD (openssl rand -hex 16)
 alembic upgrade head                 # create the tables
 uvicorn app.main:app --reload --port 8000 --no-access-log
 ```

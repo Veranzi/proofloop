@@ -18,6 +18,7 @@ from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.storage.backend import LocalStorage
 from tests.factories import Factory
 
@@ -25,9 +26,8 @@ os.environ.setdefault("PRUFLO_ENV", "test")
 os.environ.setdefault("PRUFLO_AUTH_DEV_MODE", "true")
 os.environ.setdefault("PRUFLO_APP_CHECK_REQUIRED", "false")
 
-ADMIN_URL = os.environ.get(
-    "PRUFLO_TEST_ADMIN_URL", "postgresql+psycopg://pruflo:pruflo@localhost:5433/pruflo"
-)
+# The same server as local development (credentials from backend/.env), unless overridden.
+ADMIN_URL = os.environ.get("PRUFLO_TEST_ADMIN_URL") or get_settings().sqlalchemy_url
 TEST_URL = make_url(ADMIN_URL).set(database="pruflo_test").render_as_string(hide_password=False)
 
 
