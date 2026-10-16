@@ -39,5 +39,16 @@ jobs:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_UNDERCURRENT_CB9F8 }}
           projectId: undercurrent-cb9f8
+          target: web
+          channelId: live
+          entryPoint: frontend
+
+      - name: Deploy live site to pruflo.web.app
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PRUFLO }}
+          projectId: login-register-125ef
+          target: web
           channelId: live
           entryPoint: frontend
