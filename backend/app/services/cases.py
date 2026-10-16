@@ -1,11 +1,11 @@
 """Case rules: references, membership and status changes (Docs/backend_plan.md, Step 0)."""
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
-from app.db.models import Case, CaseMember, Tenant
-from app.enums import CaseStatus, WebhookEvent
+from app.db.models import Case, CaseMember, Finding, Tenant
+from app.enums import CaseStatus, ReviewDecision, WebhookEvent
 from app.services import audit, outbox
 
 # Webhook fired when a case enters a status.
@@ -77,3 +77,31 @@ def transition(
             payload["pending_findings"] = pending_findings
         outbox.emit(db, case.tenant_id, "webhook", event.value, payload)
     return True
+
+
+def refresh_after_review(db: Session, case: Case, principal: Principal | None = None) -> None:
+    """After decisions or reconciliation: no pending finding left -> completed;
+    any pending again -> in_review. Cases still waiting for evidence are left alone."""
+    counts: dict[str, int] = {
+        status: count
+        for status, count in db.execute(
+            select(Finding.review_status, func.count())
+            .where(Finding.case_id == case.id)
+            .group_by(Finding.review_status)
+        ).all()
+    }
+    total = sum(counts.values())
+    pending = counts.get(ReviewDecision.PENDING, 0)
+    if total == 0 or case.status == CaseStatus.AWAITING_EVIDENCE:
+        return
+    if pending == 0:
+        transition(db, case, CaseStatus.COMPLETED, principal, reason="every finding decided")
+    else:
+        transition(
+            db,
+            case,
+            CaseStatus.IN_REVIEW,
+            principal,
+            reason="findings pending",
+            pending_findings=pending,
+        )
