@@ -34,6 +34,15 @@ Create an organisation and its first admin:
 python -m app.cli bootstrap --tenant "Acme Ltd" --admin-email you@example.com --admin-name "Your Name"
 ```
 
+Invite more people, or remove someone's access:
+
+```bash
+python -m app.cli invite --tenant ten_... --email someone@example.com --role admin
+python -m app.cli remove-user --email someone@example.com
+```
+
+`remove-user` keeps the user row (with the email cleared) because the append-only audit trail refers to it.
+
 With `PRUFLO_AUTH_DEV_MODE=true` (local and test only), send `Authorization: Bearer dev:<any-uid>:<email>`
 instead of a Firebase token. The first call links that UID to the invited email.
 

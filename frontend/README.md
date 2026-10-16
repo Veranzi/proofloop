@@ -25,9 +25,9 @@ To use the real API, start the backend first (see `backend/README.md`), then:
 flutter run -d chrome --dart-define=USE_API=true
 ```
 
-Sign in with an email the backend has invited, e.g. after
-`python -m app.cli bootstrap --tenant "Pruflo Demo" --admin-email alex@company.com`
-use "Continue with Google", which signs in as `alex@company.com`.
+Sign in with an email the backend has invited (see `python -m app.cli invite` in
+`backend/README.md`), using the email and password form. "Continue with Google"
+is still a mock that signs in as a placeholder account the backend hasn't invited.
 
 Until Firebase Auth is wired in, the app sends the backend's local development
 token, which the backend accepts only when `PRUFLO_ENV` is `local` or `test`.

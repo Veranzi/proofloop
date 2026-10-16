@@ -268,3 +268,50 @@ def test_bootstrap_cli_prints_tenant(capsys: object, monkeypatch: object) -> Non
             conn.execute(text("DELETE FROM tenants WHERE name = 'CLI Ltd'"))
         engine.dispose()
     assert "is its admin" in capsys.readouterr().out  # type: ignore[attr-defined]
+
+
+def test_invite_then_sign_in_as_admin(client: TestClient, make: Factory, db: Session) -> None:
+    from app.cli import invite
+
+    tenant = make.tenant()
+    invite(db, tenant.id, " New.Admin@Example.com ", Role.ADMIN)
+    res = client.get(
+        "/v1/me", headers={"Authorization": "Bearer dev:fb_admin:new.admin@example.com"}
+    )
+    assert res.status_code == 200
+    assert res.json()["role"] == "admin" and res.json()["tenant_id"] == tenant.id
+
+    invite(db, tenant.id, "new.admin@example.com", Role.REVIEWER)  # changes the role
+    res = client.get(
+        "/v1/me", headers={"Authorization": "Bearer dev:fb_admin:new.admin@example.com"}
+    )
+    assert res.json()["role"] == "reviewer"
+
+
+def test_remove_user_takes_away_access_but_keeps_audit_trail(
+    client: TestClient, make: Factory, db: Session
+) -> None:
+    from app.cli import remove_user
+
+    person = make.person(Role.ADMIN, name="Placeholder")
+    case = make.case(person.tenant, person)
+    assert (
+        client.post(
+            "/v1/devices", headers=person.headers, json={"token": "fcm-token-abcdef"}
+        ).status_code
+        == 201
+    )
+    client.patch(f"/v1/cases/{case.id}", headers=person.headers, json={"title": "Renamed"})
+    email = person.user.email
+
+    remove_user(db, email)
+    db.refresh(person.user)
+    assert person.user.active is False and person.user.firebase_uid is None
+    assert person.user.email.endswith("@pruflo.invalid")
+    assert (
+        client.get("/v1/me", headers={"Authorization": f"Bearer dev:x:{email}"}).status_code == 403
+    )
+    # The audit trail still names them.
+    admin = make.person(Role.ADMIN, person.tenant)
+    items = client.get(f"/v1/cases/{case.id}/timeline", headers=admin.headers).json()["items"]
+    assert items[0]["actor"]["name"] == "Placeholder"
