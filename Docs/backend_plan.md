@@ -11,7 +11,7 @@ Endpoint numbers (1–50) and paths are the ones in `frontend/lib/core/api_endpo
 
 ## Progress
 
-Last updated 2026-10-16 (Steps 7 and 8). Status is judged against each step's **Done when** line.
+Last updated 2026-10-16 (Steps 13–16). Status is judged against each step's **Done when** line.
 
 ✅ done · 🟠 partly done · ❌ not started
 
@@ -30,10 +30,10 @@ Last updated 2026-10-16 (Steps 7 and 8). Status is judged against each step's **
 | 10 Grounding | ❌ | |
 | 11 Rule engine | ❌ | |
 | 12 Explanations | ❌ | |
-| 13 Human review | ❌ | |
-| 14 Reports and export | ❌ | |
-| 15 Admin | ❌ | Until then, people are invited with `python -m app.cli invite` |
-| 16 Integrations | 🟠 | API keys (34–36) done in Step 4; webhooks, connectors and providers not started |
+| 13 Human review | ✅ | Endpoints 13–15; case status follows the decisions. Findings appear once Steps 9–11 exist |
+| 14 Reports and export | ✅ | PDF reports (17–19) and JSON/CSV export (50) |
+| 15 Admin | ✅ | Users, customers, case members, audit log (24–33) |
+| 16 Integrations | 🟠 | API keys, webhooks, rules and providers done; document sources report `coming_soon` until importers exist |
 | 17 Hardening | ❌ | |
 | 18 Case Q&A (optional) | ❌ | |
 
@@ -315,14 +315,18 @@ Set this up early so that each later step can be deployed and shown:
 - The default is a **deterministic template** ("The purchase order lists 100 units; the delivery note records 80.").
 - An optional Gemini rewrite may use only the finding's own values and quotes. It is labeled `machine_generated`.
 
-## ❌ Step 13: human review
+## ✅ Step 13: human review
+
+> **Status:** done. Endpoints 13–15. Cases have no findings until the rule engine (Step 11) runs, so the lists are empty until then.
 
 - Endpoint **15** `decision`: body `{ "decision": "approve" | "reject" | "pending", "note": "...", "correction": { "field", "previous", "new" }? }`. `reject` and `pending` require a note. Allowed for reviewers and admins only; people only, never API keys.
 - Each decision is an append-only `review_actions` row plus an audit event, and it updates `findings.review_status`.
 - When no finding in the case is `pending`, the case moves to `completed`. A finding set back to `pending` moves a completed case back to `in_review`.
 - Fires the `finding.decided` and `case.completed` outbox events.
 
-## ❌ Step 14: reports and export
+## ✅ Step 14: reports and export
+
+> **Status:** done. PDFs are rendered with fpdf2 (pure Python, DejaVu fonts in the worker image) instead of WeasyPrint, which avoids its system libraries. Exports are produced inline; the `202` path for very large cases isn't needed yet.
 
 - Allowed for **investigators, reviewers and admins** who are members of the case. Viewers get `403`.
 - Endpoints **17** and **18**: queue a report and list reports. The worker renders an HTML template to PDF with WeasyPrint, built only from stored claims, findings and review actions, then saves it to the bucket.
@@ -332,13 +336,15 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** the export output matches the shapes the frontend's `integrations_test.dart` checks.
 
-## ❌ Step 15: admin
+## ✅ Step 15: admin
+
+> **Status:** done. Invites don't send email: the person signs in with that address. The last active admin can't be demoted, disabled or removed.
 
 Endpoints **24–33**: users (list, invite, change role, disable), customers, case members, and the audit log viewer. Every change is audited.
 
 ## 🟠 Step 16: integrations
 
-> **Status:** API keys (34–36) are done as part of Step 4. Webhooks, connectors and providers are not started.
+> **Status:** API keys (34–36), webhooks (37–42, signed, retried, SSRF-checked), rules (46–47) and providers (48–49) are done. Document sources (43–45) list every kind as `coming_soon` and refuse to connect: each needs an importer and an external service (inbound mail, Google and Microsoft OAuth apps, an Odoo poller). Pausing a failing webhook doesn't email admins yet; there's no email service.
 
 Build in this order (from the contract):
 
@@ -368,10 +374,10 @@ Endpoint **20**: a read-only assistant with three narrow tools (`get_findings`, 
 | **M1 Vertical slice** | 🟠 | 0–6, 11 (shortfall rule only), 13, 14 (simple PDF) | Phase 1 | Create a case → upload synthetic documents → see the 20-unit shortfall → approve it → export PDF |
 | **M2 Robust ingestion** | 🟠 | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
 | **M3 Grounded AI** | ❌ | 9, 10, 12 | Phase 3 | Values come from Gemini with source highlights; uncertain ones are flagged |
-| **M4 Review and audit** | ❌ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
+| **M4 Review and audit** | ✅ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
 | **M5 Hardening** | ❌ | 16 (connectors), 17 | Phase 5 | Monitoring, backups, staging and production |
 
-M1 is partly done: Steps 0, 1 and 5 are complete, and 2, 4 and 6 are mostly done. Step 3 (GCP), the shortfall rule, review and PDF export are still to build.
+M1 is partly done: review and PDF export now work. Step 3 (GCP) and the shortfall rule (Step 11) are still to build, so no finding appears yet without test data.
 
 For M1, claims can come from hand-labelled synthetic documents, so the demo works before the Gemini step exists.
 
