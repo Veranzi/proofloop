@@ -8,3 +8,5 @@ Thumbs.db
 .env
 *.pem
 service-account*.json
+firebase-debug.log
+*-debug.log
