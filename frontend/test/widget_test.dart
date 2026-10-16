@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:proofloop/main.dart';
+import 'package:pruflo/main.dart';
 
 void main() {
-  testWidgets('App starts and shows the ProofLoop brand', (tester) async {
-    await tester.pumpWidget(const ProofLoopApp());
+  testWidgets('App starts and shows the Pruflo brand', (tester) async {
+    await tester.pumpWidget(const PrufloApp());
     await tester.pump();
-    expect(find.textContaining('ProofLoop'), findsWidgets);
+    expect(find.textContaining('Pruflo'), findsWidgets);
   });
 }

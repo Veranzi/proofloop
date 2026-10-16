@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 
-/// The ProofLoop mark (infinity loop) with the word mark beside it.
+/// The Pruflo mark (infinity loop) with the word mark beside it.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 22, this.light = false});
 

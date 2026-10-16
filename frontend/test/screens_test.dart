@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:proofloop/app/router.dart';
-import 'package:proofloop/core/auth_service.dart';
-import 'package:proofloop/main.dart';
+import 'package:pruflo/app/router.dart';
+import 'package:pruflo/core/auth_service.dart';
+import 'package:pruflo/main.dart';
 
 /// Renders every route at phone and desktop sizes. Layout overflows and
 /// build errors fail the test.
@@ -35,7 +35,7 @@ void main() {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const ProofLoopApp());
+    await tester.pumpWidget(const PrufloApp());
     appRouter.go(route);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

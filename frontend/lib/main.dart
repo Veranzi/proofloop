@@ -4,16 +4,16 @@ import 'app/router.dart';
 import 'app/theme.dart';
 
 void main() {
-  runApp(const ProofLoopApp());
+  runApp(const PrufloApp());
 }
 
-class ProofLoopApp extends StatelessWidget {
-  const ProofLoopApp({super.key});
+class PrufloApp extends StatelessWidget {
+  const PrufloApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'ProofLoop',
+      title: 'Pruflo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       routerConfig: appRouter,

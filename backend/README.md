@@ -1,6 +1,6 @@
-# Proofloop backend
+# Pruflo backend
 
-Python services for Proofloop on Google Cloud (asia-southeast1):
+Python services for Pruflo on Google Cloud (asia-southeast1):
 
 - **Cloud Run API** (FastAPI) – token validation, case-level authorization, signed URLs, Cloud SQL access.
 - **Cloud Run worker** – Pub/Sub-driven evidence pipeline: Document AI OCR, Gemini extraction, grounding, findings.
