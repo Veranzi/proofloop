@@ -110,3 +110,17 @@ def test_request_log_carries_request_id(caplog: pytest.LogCaptureFixture) -> Non
     line = JsonFormatter().format(record)
     assert '"request_id": "req_log1"' in line
     assert "secret" not in line
+
+
+def test_cors_allows_the_web_app_and_local_dev_only() -> None:
+    client = _client()
+    preflight = {
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type",
+    }
+    for origin in ("https://pruflo.web.app", "http://localhost:53211"):
+        res = client.options("/v1/cases", headers={"Origin": origin, **preflight})
+        assert res.status_code == 200, origin
+        assert res.headers["access-control-allow-origin"] == origin
+    evil = client.options("/v1/cases", headers={"Origin": "https://evil.example", **preflight})
+    assert "access-control-allow-origin" not in evil.headers

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # Signs local upload links. Local and test only; GCS uses Google-signed URLs.
     local_signing_key: str = "local-dev-only"  # noqa: S105
     public_base_url: str = "http://localhost:8000"
+    # Browser origins allowed to call the API (the Flutter web app).
+    cors_origins: list[str] = ["https://pruflo.web.app", "https://pruflo.firebaseapp.com"]
 
     # Local only: accept "Bearer dev:<uid>:<email>" in place of a Firebase token.
     # Refused outside local and test environments (see app.auth.firebase).

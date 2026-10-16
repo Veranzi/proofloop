@@ -5,6 +5,7 @@ then apply case-level authorization. See Docs/backend_plan.md.
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import local_objects
 from app.api.v1 import router as v1_router
@@ -14,11 +15,34 @@ from app.logging import configure_logging
 from app.middleware import install_request_middleware
 
 
+def install_cors(app: FastAPI) -> None:
+    settings = get_settings()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        # `flutter run -d chrome` picks a random localhost port.
+        allow_origin_regex=(
+            r"http://(localhost|127\.0\.0\.1)(:\d+)?" if settings.env in ("local", "test") else None
+        ),
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Firebase-AppCheck",
+            "X-Pruflo-Tenant",
+            "X-Request-ID",
+        ],
+        expose_headers=["X-Request-ID", "Retry-After"],
+        max_age=600,
+    )
+
+
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title="Pruflo API", version="0.1.0")
     install_error_handlers(app)
     install_request_middleware(app)
+    install_cors(app)
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
