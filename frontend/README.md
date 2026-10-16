@@ -59,6 +59,19 @@ The API requires an App Check token in production unless it runs with `PRUFLO_AP
 
 3. Sign in with an invited email.
 
+**Real Firebase sign-in locally.** Put the build settings in `frontend/dart_defines.local.json` (git-ignored; the values are in Firebase console → Project settings → Your apps):
+
+```json
+{
+  "API_BASE_URL": "http://localhost:8000",
+  "FIREBASE_API_KEY": "...",
+  "FIREBASE_APP_ID": "...",
+  "FIREBASE_MESSAGING_SENDER_ID": "..."
+}
+```
+
+Then run `flutter run -d chrome --dart-define-from-file=dart_defines.local.json`. Run the API with `PRUFLO_FIREBASE_PROJECT=login-register-125ef` and `PRUFLO_FIREBASE_CHECK_REVOKED=false` (see `backend/.env.example`). Sign in with an invited email: Google sign-in links immediately; email/password needs the verification link first.
+
 **Development sign-in.** Builds without `FIREBASE_API_KEY` show a yellow "Development sign-in" banner and ask only for an email address. The app then sends the API's development token (`dev:<uid>:<email>`). The API accepts it only when it runs with `PRUFLO_ENV=local` and `PRUFLO_AUTH_DEV_MODE=true`, so this mode can't sign anyone in to a deployed API. The email is remembered in the browser, so reloading the page keeps you signed in on the page you were on; signing out forgets it, and if the API stops accepting the email (for example, it was removed) the app forgets it and shows the sign-in page.
 
 ## Notifications and profile photo
