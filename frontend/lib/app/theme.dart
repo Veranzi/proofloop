@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Brand colours taken from the ProofLoop UI mockups.
+/// Brand colours taken from the Pruflo UI mockups.
 class AppColors {
   AppColors._();
 

@@ -57,7 +57,7 @@ class _SplashScreenState extends State<SplashScreen> {
                       size: 72, color: Color(0xFF4F86FF)),
                   const SizedBox(height: 16),
                   const Text(
-                    'ProofLoop',
+                    'Pruflo',
                     style: TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.w700,

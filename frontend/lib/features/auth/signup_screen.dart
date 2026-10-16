@@ -46,7 +46,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Widget build(BuildContext context) {
     return AuthLayout(
       title: 'Create your account',
-      subtitle: 'Get started with ProofLoop in seconds',
+      subtitle: 'Get started with Pruflo in seconds',
       child: Form(
         key: _formKey,
         child: Column(

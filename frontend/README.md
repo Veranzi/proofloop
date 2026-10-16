@@ -1,4 +1,4 @@
-# proofloop
+# pruflo
 
 A new Flutter project.
 

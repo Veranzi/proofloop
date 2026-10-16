@@ -217,7 +217,7 @@ class _SecurityTab extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.logout, color: AppColors.danger),
           title: const Text('Sign out'),
-          subtitle: const Text('Sign out of ProofLoop on this device'),
+          subtitle: const Text('Sign out of Pruflo on this device'),
           onTap: () {
             AuthService.instance.signOut();
             context.go('/login');

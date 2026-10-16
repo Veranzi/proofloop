@@ -1,5 +1,5 @@
 /// REST endpoints of the Cloud Run API (FastAPI), as proposed in the
-/// "Proofloop Flutter UI Guide". Numbers match the guide's contract table.
+/// "Pruflo Flutter UI Guide". Numbers match the guide's contract table.
 ///
 /// Every call except the signed-URL upload sends:
 /// `Authorization: Bearer {Firebase ID token}` and
