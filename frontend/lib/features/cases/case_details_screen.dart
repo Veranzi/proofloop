@@ -9,8 +9,10 @@ import '../../core/download.dart';
 import '../../core/formatters.dart';
 import '../../core/models.dart';
 import '../../widgets/async_view.dart';
+import '../../widgets/customer_picker.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/status_chip.dart';
+import 'case_members_section.dart';
 
 /// One case: overview, its evidence and its timeline
 /// (GET /v1/cases/{id}, /evidence, /timeline).
@@ -27,7 +29,9 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
   final _api = PrufloApi();
   late Future<CaseItem> _future = _api.getCase(widget.caseId);
 
-  void _reload() => setState(() => _future = _api.getCase(widget.caseId));
+  void _reload() => setState(() {
+        _future = _api.getCase(widget.caseId);
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +62,9 @@ class _CaseDetailsScreenState extends State<CaseDetailsScreen> {
         return _CaseView(
           item: item,
           onChanged: (updated) =>
-              setState(() => _future = Future.value(updated)),
+              setState(() {
+            _future = Future.value(updated);
+          }),
         );
       },
     );
@@ -193,6 +199,8 @@ class _OverviewTab extends StatelessWidget {
                   item.description.isEmpty ? none : Text(item.description)),
               field('Category',
                   item.category.isEmpty ? none : Text(item.category)),
+              field('Customer',
+                  item.customerName == null ? none : Text(item.customerName!)),
               field('Created', Text(formatDateTime(item.createdAt))),
               field('Last updated', Text(formatDateTime(item.updatedAt))),
               field(
@@ -219,6 +227,11 @@ class _OverviewTab extends StatelessWidget {
                 onPressed: () => context.go('/review?case=${item.id}'),
                 child: const Text('Open Review Workspace'),
               ),
+              // Who can see the case: admins manage it (endpoints 31, 32).
+              if (AuthService.instance.isAdmin) ...[
+                const SizedBox(height: 28),
+                CaseMembersSection(caseId: item.id),
+              ],
             ],
           ),
         ),
@@ -239,7 +252,9 @@ class _EvidenceTabState extends State<_EvidenceTab> {
   final _api = PrufloApi();
   late Future<List<EvidenceItem>> _future = _api.evidence(widget.item.id);
 
-  void _reload() => setState(() => _future = _api.evidence(widget.item.id));
+  void _reload() => setState(() {
+        _future = _api.evidence(widget.item.id);
+      });
 
   Future<void> _view(EvidenceItem f) async {
     try {
@@ -340,7 +355,9 @@ class _TimelineTabState extends State<_TimelineTab> {
   final _api = PrufloApi();
   late Future<List<TimelineItem>> _future = _api.timeline(widget.item.id);
 
-  void _reload() => setState(() => _future = _api.timeline(widget.item.id));
+  void _reload() => setState(() {
+        _future = _api.timeline(widget.item.id);
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -395,6 +412,7 @@ class _EditCaseDialogState extends State<_EditCaseDialog> {
   late final _description =
       TextEditingController(text: widget.item.description);
   late Priority _priority = widget.item.priority;
+  late String? _customerId = widget.item.customerId;
   bool _busy = false;
   String? _error;
 
@@ -420,6 +438,7 @@ class _EditCaseDialogState extends State<_EditCaseDialog> {
           'category': _category.text.trim(),
           'description': _description.text.trim(),
           'priority': _priority.name,
+          if (_customerId != widget.item.customerId) 'customer_id': _customerId,
         },
         version: widget.item.version,
       );
@@ -471,6 +490,12 @@ class _EditCaseDialogState extends State<_EditCaseDialog> {
                   selected: {_priority},
                   onSelectionChanged: (s) =>
                       setState(() => _priority = s.first),
+                ),
+                const SizedBox(height: 14),
+                CustomerPicker(
+                  value: _customerId,
+                  enabled: !_busy,
+                  onChanged: (v) => setState(() => _customerId = v),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),

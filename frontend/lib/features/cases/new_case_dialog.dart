@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../core/api.dart';
 import '../../core/models.dart';
+import '../../widgets/customer_picker.dart';
 import '../../widgets/form_fields.dart';
 
 /// Creates a case (POST /v1/cases) and returns it, or null if cancelled.
@@ -26,6 +27,7 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
   final _category = TextEditingController();
   final _description = TextEditingController();
   Priority _priority = Priority.medium;
+  String? _customerId;
   bool _busy = false;
   String? _error;
 
@@ -49,6 +51,7 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
         category: _category.text.trim(),
         description: _description.text.trim(),
         priority: _priority,
+        customerId: _customerId,
       );
       if (mounted) Navigator.of(context).pop(item);
     } catch (e) {
@@ -61,6 +64,7 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('New Case'),
       content: SizedBox(
         width: 440,
@@ -101,6 +105,12 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
                 ],
                 selected: {_priority},
                 onSelectionChanged: (s) => setState(() => _priority = s.first),
+              ),
+              const SizedBox(height: 14),
+              CustomerPicker(
+                value: _customerId,
+                enabled: !_busy,
+                onChanged: (v) => setState(() => _customerId = v),
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),

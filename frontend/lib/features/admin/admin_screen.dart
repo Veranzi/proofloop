@@ -11,11 +11,14 @@ import '../../widgets/form_fields.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/status_chip.dart';
 import '../integrations/integration_widgets.dart';
+import 'admin_audit_tab.dart';
+import 'admin_customers_tab.dart';
 
-/// Admin console: users, roles and system settings.
+/// Admin console: users, customers, audit log, roles and system settings.
 ///
 /// API (all under /v1/admin, admin role required): list users (24),
-/// invite (25), change role or disable (26), remove (27).
+/// invite (25), change role or disable (26), remove (27), customers (28–30),
+/// audit log (33).
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
 
@@ -27,7 +30,9 @@ class _AdminScreenState extends State<AdminScreen> {
   final _api = PrufloApi();
   late Future<List<OrgUser>> _users = _api.users();
 
-  void _reload() => setState(() => _users = _api.users());
+  void _reload() => setState(() {
+        _users = _api.users();
+      });
 
   Future<void> _addUser() async {
     final user = await showDialog<OrgUser>(
@@ -85,7 +90,7 @@ class _AdminScreenState extends State<AdminScreen> {
           SectionCard(
             padding: EdgeInsets.zero,
             child: DefaultTabController(
-              length: 3,
+              length: 5,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -94,6 +99,8 @@ class _AdminScreenState extends State<AdminScreen> {
                     tabAlignment: TabAlignment.start,
                     tabs: [
                       Tab(text: 'Users'),
+                      Tab(text: 'Customers'),
+                      Tab(text: 'Audit log'),
                       Tab(text: 'Roles'),
                       Tab(text: 'System'),
                     ],
@@ -115,6 +122,8 @@ class _AdminScreenState extends State<AdminScreen> {
                             onRemove: _remove,
                           ),
                         ),
+                        const AdminCustomersTab(),
+                        const AdminAuditTab(),
                         const _RolesTab(),
                         const _SystemTab(),
                       ],
@@ -332,7 +341,9 @@ class _SystemTabState extends State<_SystemTab> {
   Widget build(BuildContext context) {
     return AsyncView<ProviderSettings>(
       future: _future,
-      onRetry: () => setState(() => _future = _api.providers()),
+      onRetry: () => setState(() {
+        _future = _api.providers();
+      }),
       builder: (context, p) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
