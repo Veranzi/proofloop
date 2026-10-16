@@ -60,15 +60,11 @@ void main() {
 
       for (final route in signedInRoutes) {
         testWidgets('renders $route', (tester) async {
-
+          // Development sign-in: an email only, no password in the tests.
           await tester.runAsync(() async {
             await FakeApi().install();
             await AuthService.instance.signIn('tester@example.com', '');
           });
-
-          await tester.runAsync(
-              () => AuthService.instance.signInWithProvider('google'));
-
           await show(tester, entry.value, route);
           expect(tester.takeException(), isNull);
           expect(find.byType(Scaffold), findsWidgets);
