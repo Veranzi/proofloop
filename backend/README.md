@@ -91,6 +91,7 @@ All settings are environment variables with the `PRUFLO_` prefix, read from `bac
 | `PRUFLO_EVIDENCE_BUCKET` | `pruflo-evidence-local` | Private bucket for evidence and reports |
 | `PRUFLO_SIGNED_URL_MINUTES` | `10` | Lifetime of upload, view and download links |
 | `PRUFLO_PUBLIC_BASE_URL` | `http://localhost:8000` | Base of local storage links (local only) |
+| `PRUFLO_PUBLIC_APP_URL` | `https://pruflo.web.app` | The web app; push notifications link into it |
 | `PRUFLO_QUEUE_BACKEND` | `inline` | `pubsub` on Cloud Run; `inline` runs jobs in the API process |
 | `PRUFLO_PUBSUB_TOPIC` | `evidence-jobs` | Topic the outbox publishes to |
 | `PRUFLO_WORKER_PUSH_AUDIENCE` | – | Worker URL; OIDC tokens must be issued for it |
@@ -128,6 +129,15 @@ People only see the cases they're members of (admins see all cases in their orga
 5. **Review** (15): a reviewer approves, rejects (note required) or sets a finding back to pending. The case becomes `completed` when nothing is pending.
 6. **Reports** (17–19): the worker renders a PDF from stored data only.
 7. **Webhooks** (37–42): events are signed with HMAC-SHA256 and retried after 1 min, 5 min, 30 min, 2 h, 6 h and 12 h. An endpoint failing for 3 days is paused.
+8. **Notifications** (51–53): the following create an in-app notification for the people concerned:
+   - evidence finished processing (for the uploader);
+   - a case assigned to someone;
+   - a case ready for review (for reviewers and admins on the case);
+   - a report ready (for whoever requested it);
+   - an optional Monday summary.
+
+   Each person switches kinds on or off in their profile (`PATCH /v1/me`). If push is on and they've registered a device (2), the worker sends it with Firebase Cloud Messaging and removes tokens FCM reports as dead. Notifications are kept 90 days.
+9. **Profile photos** (54–56): uploaded like evidence, then re-encoded server-side as a JPEG of at most 512 px. This strips metadata such as GPS location.
 
 ## Operator commands
 
@@ -136,6 +146,7 @@ python -m app.cli bootstrap --tenant "Acme Ltd" --admin-email admin@acme.com --a
 python -m app.cli invite --tenant ten_... --email someone@acme.com --role reviewer
 python -m app.cli remove-user --email someone@acme.com   # keeps the audit trail, clears the email
 python -m app.worker drain                               # process anything waiting, now
+python -m app.worker weekly-summary                      # send this week's summaries now
 ```
 
 ## Testing and checks
@@ -172,11 +183,11 @@ Plan Step 3 covers this; it hasn't been done yet. The pieces, all in `asia-south
 | Cloud Run `pruflo-api` | `PRUFLO_STORAGE_BACKEND=gcs`, `PRUFLO_QUEUE_BACKEND=pubsub`, public, min instances 0 |
 | Cloud Run `pruflo-worker` | No unauthenticated access, concurrency 1, same image settings plus the worker variables |
 | Pub/Sub topic `evidence-jobs` | Push subscription to `https://<worker>/pubsub/push` with an OIDC token; retry backoff 10–600 s; dead-letter topic after 5 deliveries |
-| Cloud Scheduler | Every minute, OIDC: `POST /tasks/dispatch-outbox` and `POST /tasks/retry-webhooks` on the worker |
+| Cloud Scheduler | OIDC calls to the worker: `POST /tasks/dispatch-outbox` and `POST /tasks/retry-webhooks` every minute; `POST /tasks/weekly-summary` on Mondays at 07:00 Asia/Singapore |
 | Secret Manager | `PRUFLO_DATABASE_URL`, `PRUFLO_SECRETS_KEY` |
 | Document AI | OCR processor, optional |
 
-Give the API's service account Storage object admin on the bucket, Pub/Sub publisher, Cloud SQL client, Secret Manager accessor, and Service Account Token Creator on itself (for signed URLs). Give the worker the same, minus Pub/Sub publisher, plus Document AI user. Don't download service-account keys.
+Give the API's service account Storage object admin on the bucket, Pub/Sub publisher, Cloud SQL client, Secret Manager accessor, and Service Account Token Creator on itself (for signed URLs). Give the worker the same (it also publishes follow-up events), plus Document AI API user and Firebase Cloud Messaging admin (`roles/firebasecloudmessaging.admin`, for push). Don't download service-account keys.
 
 ## Security notes
 

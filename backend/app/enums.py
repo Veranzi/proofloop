@@ -133,3 +133,11 @@ class AiProviderName(StrEnum):
     VERTEX_CLAUDE = "vertex_claude"
     AZURE_OPENAI = "azure_openai"
     SELF_HOSTED = "self_hosted"
+
+
+class NotificationKind(StrEnum):
+    EVIDENCE_PROCESSED = "evidence_processed"
+    CASE_ASSIGNED = "case_assigned"
+    CASE_IN_REVIEW = "case_in_review"
+    REPORT_READY = "report_ready"
+    WEEKLY_SUMMARY = "weekly_summary"

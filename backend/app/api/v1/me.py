@@ -1,10 +1,10 @@
 """Profile and session: endpoints 1, 2, 21, 22, 23."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,8 @@ from app.errors import not_found
 from app.ids import new_id
 from app.pagination import Page, after_cursor, clamp_limit, next_cursor_for
 from app.services import audit
+from app.services.notifications import DEFAULT_PREFS, preferences
+from app.storage.backend import Storage, get_storage
 
 router = APIRouter(tags=["me"])
 
@@ -29,12 +31,24 @@ class MeOut(BaseModel):
     phone: str
     job_title: str
     active: bool
+    avatar_url: str | None  # short-lived; fetch /v1/me again for a fresh one
+    notification_preferences: dict[str, bool]
 
 
 class MePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     phone: str | None = Field(default=None, max_length=40)
     job_title: str | None = Field(default=None, max_length=120)
+    notification_preferences: dict[str, bool] | None = None
+
+    @field_validator("notification_preferences")
+    @classmethod
+    def _known_keys(cls, v: dict[str, bool] | None) -> dict[str, bool] | None:
+        if v is not None:
+            unknown = set(v) - set(DEFAULT_PREFS)
+            if unknown:
+                raise ValueError(f"Unknown preference: {', '.join(sorted(unknown))}")
+        return v
 
 
 class DeviceIn(BaseModel):
@@ -65,8 +79,11 @@ class ActivityOut(BaseModel):
     kind: ActivityKind
 
 
-def _me(principal: Principal) -> MeOut:
+def _me(principal: Principal, storage: Storage) -> MeOut:
     user = current_user(principal)
+    avatar_url = None
+    if user.avatar_key:
+        avatar_url = storage.view_url(user.avatar_key, "avatar.jpg", "image/jpeg").url
     return MeOut(
         id=user.id,
         name=user.name,
@@ -76,13 +93,17 @@ def _me(principal: Principal) -> MeOut:
         phone=user.phone,
         job_title=user.job_title,
         active=user.active,
+        avatar_url=avatar_url,
+        notification_preferences=preferences(user),
     )
 
 
 @router.get("/me", response_model=MeOut)
-def get_me(principal: Principal = Depends(require_person)) -> MeOut:
+def get_me(
+    principal: Principal = Depends(require_person), storage: Storage = Depends(get_storage)
+) -> MeOut:
     """1: the signed-in user's profile and role."""
-    return _me(principal)
+    return _me(principal, storage)
 
 
 @router.patch("/me", response_model=MeOut)
@@ -90,12 +111,19 @@ def patch_me(
     body: MePatch,
     principal: Principal = Depends(require_person),
     db: Session = Depends(get_db),
+    storage: Storage = Depends(get_storage),
 ) -> MeOut:
-    """21: update your own name, phone and job title. Role and email can't change here."""
+    """21: update your own name, phone, job title and notification preferences.
+    Role and email can't change here."""
     user = current_user(principal)
-    changes = body.model_dump(exclude_unset=True, exclude_none=True)
+    changes: dict[str, Any] = body.model_dump(exclude_unset=True, exclude_none=True)
+    prefs = changes.pop("notification_preferences", None)
     for name, value in changes.items():
         setattr(user, name, value.strip())
+    if prefs is not None:
+        # A new dict, so SQLAlchemy notices the JSON column changed.
+        user.notification_prefs = {**user.notification_prefs, **prefs}
+        changes["notification_preferences"] = prefs
     if changes:
         audit.record(
             db,
@@ -106,7 +134,7 @@ def patch_me(
             details={"fields": sorted(changes)},
         )
         db.commit()
-    return _me(principal)
+    return _me(principal, storage)
 
 
 @router.post("/devices", response_model=DeviceOut, status_code=201)

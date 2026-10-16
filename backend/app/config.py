@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # Signs local upload links. Local and test only; GCS uses Google-signed URLs.
     local_signing_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     public_base_url: str = "http://localhost:8000"
+    # The web app, for links in push notifications.
+    public_app_url: str = "https://pruflo.web.app"
     # "pubsub" on Cloud Run. "inline" runs jobs in this process right after the
     # request (local development), so no Pub/Sub emulator is needed.
     queue_backend: Literal["pubsub", "inline"] = "inline"

@@ -167,6 +167,7 @@ def _save(db: Session, evidence: EvidenceFile, result: Extraction) -> None:
         WebhookEvent.EVIDENCE_PROCESSED.value,
         {"case_id": evidence.case_id, "evidence_id": evidence.id, "status": evidence.status},
     )
+    _notify_uploader(db, evidence)
 
 
 def _finish_job(db: Session, job_id: str, status: JobStatus, error: str | None = None) -> None:
@@ -199,6 +200,7 @@ def _fail(db: Session, evidence_id: str, job_id: str, code: str) -> None:
             WebhookEvent.EVIDENCE_FAILED.value,
             {"case_id": evidence.case_id, "evidence_id": evidence.id, "error_class": code},
         )
+        _notify_uploader(db, evidence)
     _finish_job(db, job_id, JobStatus.FAILED_TERMINAL, code)
 
 
@@ -277,5 +279,48 @@ def run_report_job(db: Session, storage: Storage, report_id: str) -> str:
         WebhookEvent.REPORT_READY.value,
         {"case_id": case.id, "report_id": report.id, "format": report.format},
     )
+    from app.enums import NotificationKind
+    from app.services import notifications
+
+    notifications.notify(
+        db,
+        case.tenant_id,
+        [report.requested_by],
+        NotificationKind.REPORT_READY,
+        f"{report.title} is ready",
+        case.title,
+        case=case,
+        link=f"/reports?case={case.id}",
+    )
     db.commit()
     return "done"
+
+
+_EVIDENCE_TITLES = {
+    EvidenceStatus.PROCESSED: "{name} is processed",
+    EvidenceStatus.NEEDS_REVIEW: "{name} needs a manual check",
+    EvidenceStatus.FAILED_TERMINAL: "{name} couldn't be processed",
+}
+
+
+def _notify_uploader(db: Session, evidence: EvidenceFile) -> None:
+    from app.db.models import Case
+    from app.enums import NotificationKind
+    from app.services import notifications
+
+    template = _EVIDENCE_TITLES.get(EvidenceStatus(evidence.status))
+    case = db.get(Case, evidence.case_id)
+    if template is None or case is None:
+        return
+    body = f"{case.reference} · {case.title}"
+    if evidence.error_class:
+        body += f" ({evidence.error_class.replace('_', ' ')})"
+    notifications.notify(
+        db,
+        evidence.tenant_id,
+        [evidence.uploaded_by],
+        NotificationKind.EVIDENCE_PROCESSED,
+        template.format(name=evidence.original_filename),
+        body,
+        case=case,
+    )

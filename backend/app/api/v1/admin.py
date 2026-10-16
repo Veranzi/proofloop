@@ -408,3 +408,29 @@ def audit_log(
         items=items,
         next_cursor=next_cursor_for(rows, size, lambda r: (r[0].created_at, r[0].id)),
     )
+
+
+# Customer picker (57) ------------------------------------------------------------
+
+directory = APIRouter(tags=["cases"])
+
+
+class CustomerRef(BaseModel):
+    id: str
+    name: str
+
+
+class CustomerRefList(BaseModel):
+    items: list[CustomerRef]
+
+
+@directory.get("/customers", response_model=CustomerRefList)
+def customer_picker(
+    principal: Principal = Depends(require(Permission.VIEW_CASES)),
+    db: Session = Depends(get_db),
+) -> CustomerRefList:
+    """57: names only, for choosing a customer on a case. Editing stays admin-only (28-30)."""
+    rows = db.scalars(
+        select(Customer).where(Customer.tenant_id == principal.tenant_id).order_by(Customer.name)
+    ).all()
+    return CustomerRefList(items=[CustomerRef(id=c.id, name=c.name) for c in rows])

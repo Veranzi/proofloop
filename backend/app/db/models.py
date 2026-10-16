@@ -37,6 +37,7 @@ from app.enums import (
     EvidenceStatus,
     GroundingStatus,
     JobStatus,
+    NotificationKind,
     OcrProviderName,
     Priority,
     ReportFormat,
@@ -78,6 +79,9 @@ class User(Timestamped, Base):
     phone: Mapped[str] = mapped_column(String(40), server_default="")
     job_title: Mapped[str] = mapped_column(String(120), server_default="")
     active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    avatar_key: Mapped[str | None] = mapped_column(String(300))  # re-encoded JPEG in storage
+    # Per-kind on/off plus "push"; missing keys use the defaults in services/notifications.py.
+    notification_prefs: Mapped[dict[str, bool]] = mapped_column(JSONB, server_default="{}")
 
 
 class Membership(Timestamped, Base):
@@ -475,3 +479,24 @@ class AuditEvent(Timestamped, Base):
     case_id: Mapped[str | None] = mapped_column(_fk("cases.id"))
     request_id: Mapped[str] = mapped_column(String(64))
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+
+
+class Notification(Timestamped, Base):
+    """In-app notification for one person. Kept 90 days."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        enum_check("kind", NotificationKind),
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_unread", "user_id", postgresql_where="read_at IS NULL"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(_fk("tenants.id"))
+    user_id: Mapped[str] = mapped_column(_fk("users.id", "CASCADE"))
+    kind: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(String(500), server_default="")
+    case_id: Mapped[str | None] = mapped_column(_fk("cases.id", "CASCADE"))
+    link: Mapped[str] = mapped_column(String(300), server_default="")
+    read_at: Mapped[datetime | None] = mapped_column(TZ)

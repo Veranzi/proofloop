@@ -74,8 +74,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m app.worker")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("drain", help="process waiting files now, in this process")
-    parser.parse_args()
+    sub.add_parser("weekly-summary", help="send this week's summaries now")
+    args = parser.parse_args()
     with Session(get_engine()) as db:
+        if args.command == "weekly-summary":
+            from app.services import notifications
+
+            print(f"Sent {notifications.weekly_summary(db)} summaries.")  # noqa: T201
+            _send_pending_events(db)
+            return
         counts = drain(db)
     print(", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "Nothing waiting.")  # noqa: T201
 

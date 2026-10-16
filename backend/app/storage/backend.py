@@ -8,6 +8,7 @@ Signed URLs are never logged.
 """
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import time
@@ -41,6 +42,7 @@ class Storage(Protocol):
     def stat(self, key: str) -> ObjectInfo | None: ...
     def read(self, key: str) -> bytes: ...
     def write(self, key: str, data: bytes, content_type: str) -> None: ...
+    def delete(self, key: str) -> None: ...
 
 
 def _expiry() -> tuple[timedelta, datetime]:
@@ -105,6 +107,12 @@ class GcsStorage:
     def write(self, key: str, data: bytes, content_type: str) -> None:
         self._bucket.blob(key).upload_from_string(data, content_type=content_type)
 
+    def delete(self, key: str) -> None:
+        from google.api_core.exceptions import NotFound
+
+        with contextlib.suppress(NotFound):
+            self._bucket.blob(key).delete()
+
 
 class LocalStorage:
     def __init__(self, root: str, signing_key: str, base_url: str) -> None:
@@ -162,6 +170,11 @@ class LocalStorage:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         target.with_name(target.name + ".type").write_text(content_type)
+
+    def delete(self, key: str) -> None:
+        target = self.path(key)
+        target.unlink(missing_ok=True)
+        target.with_name(target.name + ".type").unlink(missing_ok=True)
 
 
 @lru_cache

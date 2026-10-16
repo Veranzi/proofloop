@@ -70,6 +70,21 @@ def transition(
             case_id=case.id,
             details=details,
         )
+    if new_status == CaseStatus.IN_REVIEW:
+        from app.enums import NotificationKind
+        from app.services import notifications
+
+        notifications.notify(
+            db,
+            case.tenant_id,
+            notifications.reviewers_of(db, case),
+            NotificationKind.CASE_IN_REVIEW,
+            f"{case.reference} is ready for review",
+            case.title,
+            case=case,
+            link=f"/review?case={case.id}",
+            exclude=principal.user_id if principal else None,
+        )
     event = _STATUS_EVENTS.get(new_status)
     if event is not None:
         payload: dict[str, object] = {"case_id": case.id}
@@ -105,3 +120,19 @@ def refresh_after_review(db: Session, case: Case, principal: Principal | None = 
             reason="findings pending",
             pending_findings=pending,
         )
+
+
+def notify_assignee(db: Session, case: Case, principal: Principal) -> None:
+    from app.enums import NotificationKind
+    from app.services import notifications
+
+    notifications.notify(
+        db,
+        case.tenant_id,
+        [case.assigned_to],
+        NotificationKind.CASE_ASSIGNED,
+        f"{case.reference} was assigned to you",
+        case.title,
+        case=case,
+        exclude=principal.user_id,
+    )

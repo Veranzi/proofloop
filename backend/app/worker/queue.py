@@ -106,6 +106,10 @@ def handle_event(
         )
     if event_type == GENERATE_REPORT:
         return run_report_job(db, storage, str(payload["report_id"]))
+    if event_type == "push.send":
+        from app.services.push import send_push
+
+        return f"pushed {send_push(db, [str(i) for i in payload['notification_ids']])}"
     if event_type == WEBHOOK_FANOUT:
         from app.services import webhooks
 

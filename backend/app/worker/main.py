@@ -114,6 +114,18 @@ def create_worker_app() -> FastAPI:
     ) -> dict[str, int]:
         return {"published": len(dispatch_outbox(db, queue.publisher))}
 
+    @app.post("/tasks/weekly-summary", dependencies=[Depends(verify_invoker)])
+    def weekly_summary(
+        db: Session = Depends(get_db), queue: Queue = Depends(get_queue)
+    ) -> dict[str, int]:
+        """Cloud Scheduler, Mondays: in-app summaries; notifications past 90 days removed."""
+        from app.services import notifications
+
+        sent = notifications.weekly_summary(db)
+        removed = notifications.purge_old(db)
+        dispatch_outbox(db, queue.publisher)
+        return {"sent": sent, "removed": removed}
+
     @app.post("/tasks/retry-webhooks", dependencies=[Depends(verify_invoker)])
     def retry_webhooks(db: Session = Depends(get_db)) -> dict[str, int]:
         """Cloud Scheduler, every minute: re-send failed webhook deliveries that are due."""
