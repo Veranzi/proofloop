@@ -20,7 +20,7 @@ class JsonFormatter(logging.Formatter):
             "severity": record.levelname,
             "message": record.getMessage(),
             "logger": record.name,
-            "request_id": request_id_var.get(),
+            "request_id": getattr(record, "request_id", "-"),
         }
         for name in _CONTEXT_FIELDS:
             if hasattr(record, name):
@@ -30,7 +30,19 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(entry, default=str)
 
 
+_base_factory = logging.getLogRecordFactory()
+
+
+def _record_with_request_id(*args: Any, **kwargs: Any) -> logging.LogRecord:
+    # Stamp the request ID when the record is created, not when it's formatted,
+    # so buffered or threaded handlers still get the right one.
+    record = _base_factory(*args, **kwargs)
+    record.request_id = request_id_var.get()
+    return record
+
+
 def configure_logging(level: int = logging.INFO) -> None:
+    logging.setLogRecordFactory(_record_with_request_id)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()

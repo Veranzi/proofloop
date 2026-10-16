@@ -25,20 +25,20 @@ def install_request_middleware(app: FastAPI) -> None:
         start = time.perf_counter()
         try:
             response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            logger.info(
+                "%s %s",
+                request.method,
+                request.url.path,  # path only: query strings may carry signatures or cursors
+                extra={
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "ms": round((time.perf_counter() - start) * 1000, 1),
+                },
+            )
+            return response
         except Exception:
             logger.exception("unhandled error", extra={"path": request.url.path})
             raise
         finally:
             request_id_var.reset(token)
-        response.headers["X-Request-ID"] = request_id
-        logger.info(
-            "%s %s",
-            request.method,
-            request.url.path,  # path only: query strings may carry cursors or tokens
-            extra={
-                "path": request.url.path,
-                "status_code": response.status_code,
-                "ms": round((time.perf_counter() - start) * 1000, 1),
-            },
-        )
-        return response

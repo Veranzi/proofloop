@@ -20,7 +20,7 @@ source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env
 alembic upgrade head                 # create the tables
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000 --no-access-log
 ```
 
 Then open http://127.0.0.1:8000/healthz or http://127.0.0.1:8000/docs.

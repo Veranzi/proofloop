@@ -44,8 +44,8 @@ def main() -> None:
     args = parser.parse_args()
 
     with Session(get_engine()) as db:
-        tenant = bootstrap(db, args.tenant, args.admin_email, args.admin_name)
-    print(f"Created {tenant.id}; {args.admin_email} is its admin.")  # noqa: T201
+        tenant_id = bootstrap(db, args.tenant, args.admin_email, args.admin_name).id
+    print(f"Created {tenant_id}; {args.admin_email} is its admin.")  # noqa: T201
 
 
 if __name__ == "__main__":

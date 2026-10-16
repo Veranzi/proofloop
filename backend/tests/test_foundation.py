@@ -95,3 +95,18 @@ def test_limits_and_ids() -> None:
     assert clamp_limit(10_000) == 200
     a, b = new_id("evd"), new_id("evd")
     assert a.startswith("evd_") and a != b
+
+
+def test_request_log_carries_request_id(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    client = _client()  # create_app() replaces the root handlers, so re-attach caplog's
+    logging.getLogger().addHandler(caplog.handler)
+    with caplog.at_level("INFO", logger="pruflo.request"):
+        client.get("/healthz?sig=secret", headers={"X-Request-ID": "req_log1"})
+    from app.logging import JsonFormatter
+
+    record = next(r for r in caplog.records if r.name == "pruflo.request")
+    line = JsonFormatter().format(record)
+    assert '"request_id": "req_log1"' in line
+    assert "secret" not in line

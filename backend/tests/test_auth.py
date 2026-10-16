@@ -230,3 +230,41 @@ def test_bootstrap_creates_tenant_and_admin(db: Session) -> None:
     user = db.scalar(select(User).where(User.email == "admin@acme.com"))
     assert user is not None and user.firebase_uid is None
     assert tenant.name == "Acme Ltd"
+
+
+def test_bootstrap_cli_prints_tenant(capsys: object, monkeypatch: object) -> None:
+    """Regression: the CLI read the tenant after its session had closed."""
+    import sys
+
+    from sqlalchemy import create_engine
+
+    from app import cli
+    from tests.conftest import TEST_URL
+
+    engine = create_engine(TEST_URL)
+    monkeypatch.setattr(cli, "get_engine", lambda: engine)  # type: ignore[attr-defined]
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        sys, "argv", ["cli", "bootstrap", "--tenant", "CLI Ltd", "--admin-email", "cli@example.com"]
+    )
+    try:
+        cli.main()
+    finally:
+        with engine.begin() as conn:  # this test commits for real, so clean up
+            from sqlalchemy import text
+
+            conn.execute(
+                text(
+                    "DELETE FROM memberships WHERE user_id IN "
+                    "(SELECT id FROM users WHERE email = 'cli@example.com')"
+                )
+            )
+            conn.execute(
+                text(
+                    "DELETE FROM provider_settings WHERE tenant_id IN "
+                    "(SELECT id FROM tenants WHERE name = 'CLI Ltd')"
+                )
+            )
+            conn.execute(text("DELETE FROM users WHERE email = 'cli@example.com'"))
+            conn.execute(text("DELETE FROM tenants WHERE name = 'CLI Ltd'"))
+        engine.dispose()
+    assert "is its admin" in capsys.readouterr().out  # type: ignore[attr-defined]
