@@ -16,3 +16,6 @@ npm-debug.log*
 
 # Claude Code worktrees (local only)
 .claude/worktrees/
+
+firebase-debug.log
+*-debug.log
