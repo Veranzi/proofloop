@@ -120,7 +120,7 @@ Both workflows pass the build settings from GitHub repository variables (**Setti
 | `FIREBASE_APP_CHECK_SITE_KEY` | if the API requires App Check | reCAPTCHA v3 site key |
 | `FIREBASE_VAPID_KEY` | only for push | Web push key. Both workflows pass it; set the repository variable to turn push on |
 
-A **Check build settings** step stops the workflow if a required variable is missing or `API_BASE_URL` isn't `https`, so a misconfigured build never replaces the live site.
+A **Check build settings** step stops the live deploy if a required variable is missing or `API_BASE_URL` isn't `https`, so a misconfigured build never replaces the live site. On pull requests, missing variables only skip the preview (with a warning): the app is still built, so compile errors fail the check.
 
 To deploy by hand, run `firebase deploy --only hosting:web --project pruflo` from `frontend/`. The project alias is in `frontend/.firebaserc`.
 
