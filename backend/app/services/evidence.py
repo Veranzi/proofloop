@@ -7,6 +7,7 @@
    compute the checksum, then queue processing in the same transaction.
 """
 
+import contextlib
 import hashlib
 import io
 from datetime import UTC, datetime
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.auth.principal import Principal
 from app.config import MAX_FILE_BYTES, MAX_FILES_PER_BATCH, MAX_PAGES
 from app.db.models import Case, EvidenceFile, ProcessingJob
-from app.enums import CaseStatus, EvidenceStatus
+from app.enums import CaseStatus, EvidenceSource, EvidenceStatus
 from app.errors import ApiError, bad_request, conflict
 from app.ids import new_id
 from app.services import audit, outbox
@@ -126,6 +127,22 @@ def complete_upload(
     if info is None:
         raise ApiError(409, "upload_incomplete", "The file hasn't finished uploading.")
     data = storage.read(evidence.object_key)
+    _accept(db, principal, case, evidence, data, title=f"Uploaded {evidence.original_filename}")
+    return evidence
+
+
+def _accept(
+    db: Session,
+    principal: Principal | None,
+    case: Case,
+    evidence: EvidenceFile,
+    data: bytes,
+    *,
+    title: str,
+) -> None:
+    """Check what arrived, then queue it in the same transaction. Shared by
+    uploads and importers (``principal`` is None for a scheduled import).
+    Commits; raises UploadRejected after recording a rejected file."""
     evidence.byte_size = len(data)
     evidence.sha256 = hashlib.sha256(data).hexdigest()
     evidence.uploaded_at = datetime.now(UTC)
@@ -135,14 +152,13 @@ def complete_upload(
         # Kept, but never processed: it shows as failed with the reason.
         evidence.status = EvidenceStatus.FAILED_TERMINAL
         evidence.error_class = rejected.code
-        audit.record(
+        _audit(
             db,
             principal,
+            case,
             "evidence.rejected",
-            "evidence",
             evidence.id,
-            case_id=case.id,
-            details={"reason": rejected.code},
+            {"reason": rejected.code, "source": evidence.source},
         )
         db.commit()
         raise
@@ -151,16 +167,97 @@ def complete_upload(
         case_service.transition(
             db, case, CaseStatus.AWAITING_EVIDENCE, principal, reason="new evidence"
         )
-    audit.record(
-        db,
-        principal,
-        "evidence.uploaded",
-        "evidence",
-        evidence.id,
-        case_id=case.id,
-        details={"title": f"Uploaded {evidence.original_filename}", "sha256": evidence.sha256},
-    )
+    details: dict[str, object] = {"title": title, "sha256": evidence.sha256}
+    if evidence.source != EvidenceSource.UPLOAD:
+        details["source"] = evidence.source
+    _audit(db, principal, case, "evidence.uploaded", evidence.id, details)
     db.commit()
+
+
+def _audit(
+    db: Session,
+    principal: Principal | None,
+    case: Case,
+    action: str,
+    evidence_id: str,
+    details: dict[str, object],
+) -> None:
+    if principal is None:
+        audit.record_system(
+            db, case.tenant_id, action, "evidence", evidence_id, case_id=case.id, details=details
+        )
+    else:
+        audit.record(
+            db, principal, action, "evidence", evidence_id, case_id=case.id, details=details
+        )
+
+
+def import_file(
+    db: Session,
+    storage: Storage,
+    case: Case,
+    *,
+    file_name: str,
+    data: bytes | None,
+    source: EvidenceSource,
+    source_ref: str,
+    principal: Principal | None = None,
+    uploaded_by: str | None = None,
+    size: int | None = None,
+) -> EvidenceFile | None:
+    """Store a file a connector fetched and treat it exactly like a finished
+    upload: same types, limits, checksum and queue. Returns None when the
+    source already sent this file. Rejected files are kept as failed, like
+    uploads; a type that's never accepted raises UploadRejected. Pass
+    ``data=None`` with ``size`` for a file too big to fetch."""
+    exists = db.scalar(
+        select(EvidenceFile.id).where(
+            EvidenceFile.tenant_id == case.tenant_id,
+            EvidenceFile.source == source,
+            EvidenceFile.source_ref == source_ref,
+        )
+    )
+    if exists is not None:
+        return None
+    extension = file_types.extension_of(file_name)
+    file_type = file_types.FILE_TYPES.get(extension)
+    if file_type is None:
+        raise UploadRejected("unsupported_file", "This file type isn't supported.")
+    evidence_id = new_id("evd")
+    evidence = EvidenceFile(
+        id=evidence_id,
+        tenant_id=case.tenant_id,
+        case_id=case.id,
+        object_key=f"tenants/{case.tenant_id}/cases/{case.id}/evidence/{evidence_id}{extension}",
+        original_filename=file_name[:255],
+        declared_mime=file_type.mime,
+        byte_size=len(data) if data is not None else max(size or 0, 0),
+        evidence_types=[file_type.kind],
+        status=EvidenceStatus.UPLOADING,
+        uploaded_by=uploaded_by or (principal.user_id if principal else None),
+        source=source,
+        source_ref=source_ref,
+    )
+    db.add(evidence)
+    db.flush()
+    if data is None or len(data) > MAX_FILE_BYTES:
+        # Recorded as rejected without fetching or keeping the bytes.
+        evidence.status = EvidenceStatus.FAILED_TERMINAL
+        evidence.error_class = "file_too_large"
+        _audit(
+            db,
+            principal,
+            case,
+            "evidence.rejected",
+            evidence.id,
+            {"reason": "file_too_large", "source": source},
+        )
+        db.commit()
+        return evidence
+    storage.write(evidence.object_key, data, file_type.mime)
+    # A rejection is recorded on the row; the import carries on with the next file.
+    with contextlib.suppress(UploadRejected):
+        _accept(db, principal, case, evidence, data, title=f"Imported {evidence.original_filename}")
     return evidence
 
 

@@ -70,7 +70,9 @@ class GcsStorage:
 
         credentials, _ = google.auth.default()
         credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[no-untyped-call]
-        email = getattr(credentials, "service_account_email", None)
+        email = get_settings().signing_service_account or getattr(
+            credentials, "service_account_email", None
+        )
         if email:
             return {"service_account_email": email, "access_token": credentials.token}
         return {"credentials": credentials}

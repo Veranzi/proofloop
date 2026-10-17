@@ -317,3 +317,56 @@ def test_customer_picker_and_names_on_cases(client: TestClient, make: Factory) -
     assert case["customer_name"] == "Acme Supplies"
     listed = client.get("/v1/cases", headers=investigator.headers).json()["items"][0]
     assert listed["customer_name"] == "Acme Supplies"
+
+
+def test_fcm_message_is_valid_for_firebase_and_dead_tokens_are_reported(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Runs fcm_send through firebase-admin's own encoder, so a malformed
+    message fails here rather than on the first real send."""
+    from firebase_admin import exceptions, messaging
+
+    from app.auth import firebase
+
+    encoded: list[dict[str, Any]] = []
+
+    class FakeService:
+        def send_each(self, messages: list[Any], dry_run: bool = False) -> Any:
+            encoded.extend(messaging._MessagingService.encode_message(m) for m in messages)
+            return messaging.BatchResponse(
+                [
+                    messaging.SendResponse({"name": "projects/p/messages/1"}, None),
+                    messaging.SendResponse(None, messaging.UnregisteredError("gone")),
+                    messaging.SendResponse(None, exceptions.ResourceExhaustedError("quota", None)),
+                ]
+            )
+
+    monkeypatch.setattr(messaging, "_get_messaging_service", lambda app: FakeService())
+    monkeypatch.setattr(firebase, "_firebase_app", lambda: None)
+    link = "https://pruflo.web.app/#/cases/case_1"
+    dead = push.fcm_send(["live", "gone", "busy"], "PL-001 was assigned to you", "", link)
+    assert dead == ["gone"]
+    assert encoded[0] == {
+        "token": "live",
+        "notification": {"title": "PL-001 was assigned to you"},
+        "data": {"link": link},
+        "webpush": {"fcm_options": {"link": link}},
+    }
+    assert "ResourceExhaustedError" in caplog.text and "busy" not in caplog.text
+
+
+def test_test_push_command_reports_devices(
+    client: TestClient, make: Factory, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import cli
+
+    monkeypatch.setattr(push, "fcm_send", lambda tokens, title, body, link: tokens[:1])
+    bob = make.person(Role.REVIEWER)
+    assert "no registered devices" in cli.test_push(db, bob.user.email)
+    for token in ("token-one-123456", "token-two-123456"):
+        client.post("/v1/devices", headers=bob.headers, json={"token": token})
+    message = cli.test_push(db, bob.user.email)
+    assert message == "Sent to 2 device(s); 1 no longer valid and removed."
+    assert db.scalars(select(Device.token).where(Device.user_id == bob.user.id)).all() == [
+        "token-two-123456"
+    ]

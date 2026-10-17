@@ -36,11 +36,35 @@ def fcm_send(tokens: list[str], title: str, body: str, link: str) -> list[str]:
     result = messaging.send_each_for_multicast(message, app=_firebase_app())
     dead: list[str] = []
     for token, response in zip(tokens, result.responses, strict=True):
-        if not response.success and isinstance(
+        if response.success:
+            continue
+        if isinstance(
             response.exception, messaging.UnregisteredError | messaging.SenderIdMismatchError
         ):
             dead.append(token)
+        else:
+            # Quota, auth or a malformed message: worth seeing, never the token itself.
+            logger.warning("push to one device failed: %s", type(response.exception).__name__)
     return dead
+
+
+def send_test(db: Session, user_id: str) -> tuple[int, int]:
+    """Send a test push to every device of one person, now and in this process.
+    Returns (devices tried, dead tokens removed). Raises if FCM can't be used."""
+    settings = get_settings()
+    tokens = list(db.scalars(select(Device.token).where(Device.user_id == user_id)))
+    if not tokens:
+        return 0, 0
+    dead = fcm_send(
+        tokens,
+        "Pruflo test notification",
+        "Push notifications are working on this device.",
+        settings.public_app_url.rstrip("/") + "/#/dashboard",
+    )
+    if dead:
+        db.execute(delete(Device).where(Device.token.in_(dead)))
+        db.commit()
+    return len(tokens), len(dead)
 
 
 def send_push(db: Session, notification_ids: list[str]) -> int:

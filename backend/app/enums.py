@@ -114,6 +114,16 @@ class ConnectorKind(StrEnum):
     SAP = "sap"
 
 
+class EvidenceSource(StrEnum):
+    """Where an evidence file came from. Every source goes through the same checks."""
+
+    UPLOAD = "upload"
+    EMAIL_INBOX = "email_inbox"
+    GOOGLE_DRIVE = "google_drive"
+    SHAREPOINT = "sharepoint"
+    ODOO = "odoo"
+
+
 class ConnectorStatus(StrEnum):
     NOT_CONNECTED = "not_connected"
     CONNECTED = "connected"

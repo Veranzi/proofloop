@@ -82,7 +82,8 @@ All settings are environment variables with the `PRUFLO_` prefix, read from `bac
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PRUFLO_ENV` | `local` | `local`, `test`, `dev`, `staging` or `prod`. Development-only behaviour is refused outside `local`/`test` |
-| `PRUFLO_DATABASE_URL` | – | Full SQLAlchemy URL (`postgresql+psycopg://...`). Use on Cloud Run, from Secret Manager |
+| `PRUFLO_DATABASE_URL` | – | Full SQLAlchemy URL (`postgresql+psycopg://...`) for the **runtime** role. Use on Cloud Run, from Secret Manager |
+| `PRUFLO_MIGRATION_DATABASE_URL` | `PRUFLO_DATABASE_URL` | URL for the **migration** role, used only by Alembic (see [Database migrations](#database-migrations)) |
 | `PRUFLO_DB_PASSWORD` | – | Local database password; with `PRUFLO_DB_USER`/`HOST`/`PORT`/`NAME` it builds the URL when `PRUFLO_DATABASE_URL` is empty |
 | `PRUFLO_GCP_PROJECT` | `pruflo-local` | GCP project for Storage, Pub/Sub and Document AI |
 | `PRUFLO_FIREBASE_PROJECT` | `PRUFLO_GCP_PROJECT` | Firebase project whose ID tokens are accepted (`login-register-125ef` for pruflo.web.app) |
@@ -91,6 +92,7 @@ All settings are environment variables with the `PRUFLO_` prefix, read from `bac
 | `PRUFLO_STORAGE_BACKEND` | `local` | `gcs` on Cloud Run; `local` stores files on disk (local/test only) |
 | `PRUFLO_EVIDENCE_BUCKET` | `pruflo-evidence-local` | Private bucket for evidence and reports |
 | `PRUFLO_SIGNED_URL_MINUTES` | `10` | Lifetime of upload, view and download links |
+| `PRUFLO_SIGNING_SERVICE_ACCOUNT` | – | Sign URLs through IAM signBlob as this account when the credentials can't sign (e.g. a gcloud login running `check-storage`). Not needed on Cloud Run |
 | `PRUFLO_PUBLIC_BASE_URL` | `http://localhost:8000` | Base of local storage links (local only) |
 | `PRUFLO_PUBLIC_APP_URL` | `https://pruflo.web.app` | The web app; push notifications link into it |
 | `PRUFLO_QUEUE_BACKEND` | `inline` | `pubsub` on Cloud Run; `inline` runs jobs in the API process |
@@ -99,7 +101,13 @@ All settings are environment variables with the `PRUFLO_` prefix, read from `bac
 | `PRUFLO_WORKER_INVOKER_SERVICE_ACCOUNTS` | `[]` | JSON list of service accounts allowed to call the worker (Pub/Sub push, Cloud Scheduler) |
 | `PRUFLO_DOCUMENTAI_LOCATION` | – | Document AI location. A location outside the region sends documents abroad; get sign-off first |
 | `PRUFLO_DOCUMENTAI_PROCESSOR_ID` | – | OCR processor. Without it, scans and images are marked `needs_review` |
-| `PRUFLO_SECRETS_KEY` | – | Fernet key that encrypts webhook signing secrets. Required outside `local`/`test` |
+| `PRUFLO_SECRETS_KEY` | – | Fernet key that encrypts webhook signing secrets and document-source credentials, and signs OAuth state. Required outside `local`/`test` |
+| `PRUFLO_INBOUND_EMAIL_DOMAIN` | – | Domain of the email inbox addresses (`evidence+<tag>@<domain>`). With the token, turns the email inbox source on |
+| `PRUFLO_INBOUND_EMAIL_TOKEN` | – | Shared secret the mail service sends to `/v1/inbound/email` (header `X-Pruflo-Inbound-Token` or `?token=`) |
+| `PRUFLO_INBOUND_AUTHSERV_ID` | – | The mail service's name in `Authentication-Results` (e.g. `mx.sendgrid.net`); when set, only that header is trusted |
+| `PRUFLO_GOOGLE_OAUTH_CLIENT_ID`, `_SECRET` | – | OAuth web client for Google Drive (scope `drive.readonly`). Turns the Drive source on |
+| `PRUFLO_MICROSOFT_OAUTH_CLIENT_ID`, `_SECRET` | – | Entra ID app for SharePoint (`Sites.Selected`, `offline_access`). Turns the SharePoint source on |
+| `PRUFLO_CONNECTOR_SYNC_MINUTES` | `15` | How often polled sources (Odoo, Drive, SharePoint) are synced |
 | `PRUFLO_CORS_ORIGINS` | `["https://pruflo.web.app","https://pruflo.firebaseapp.com"]` | Browser origins allowed to call the API; any localhost port is also allowed in `local`/`test` |
 | `PRUFLO_AUTH_DEV_MODE` | `false` | Accept `dev:` tokens. Ignored outside `local`/`test` |
 | `PRUFLO_APP_CHECK_REQUIRED` | `true` | Require a Firebase App Check token from the app. Skipped in `local`/`test` |
@@ -139,6 +147,10 @@ People only see the cases they're members of (admins see all cases in their orga
 
    Each person switches kinds on or off in their profile (`PATCH /v1/me`). If push is on and they've registered a device (2), the worker sends it with Firebase Cloud Messaging and removes tokens FCM reports as dead. Notifications are kept 90 days.
 9. **Profile photos** (54–56): uploaded like evidence, then re-encoded server-side as a JPEG of at most 512 px. This strips metadata such as GPS location.
+10. **Document sources** (43–45, `app/connectors/`): imported files go through `services.evidence.import_file`, the same types, limits, checksum and queue as an upload; each source's file ID is stored so nothing is imported twice. A source is listed as `coming_soon` until this deployment has its settings.
+    - **Email inbox**: the mail service posts each message to `POST /v1/inbound/email`. The sender must pass SPF or DKIM aligned with the From domain (or DMARC) in the topmost `Authentication-Results` header and be a member who may upload. `[PL-001]` in the subject adds to that case; otherwise a new case is opened.
+    - **Odoo**: login checked on save (JSON-RPC, read-only user). Attachments on purchase orders, receipts and vendor bills added after connecting are imported, grouped by purchase order into one case.
+    - **Google Drive / SharePoint**: OAuth consent, then each subfolder of the connected folder becomes a case; loose files open their own case unless their name mentions a case reference. A new version of a file comes in as new evidence.
 
 ## Operator commands
 
@@ -148,18 +160,22 @@ python -m app.cli invite --tenant ten_... --email someone@acme.com --role review
 python -m app.cli remove-user --email someone@acme.com   # keeps the audit trail, clears the email
 python -m app.worker drain                               # process anything waiting, now
 python -m app.worker weekly-summary                      # send this week's summaries now
+python -m app.worker sync-connectors                     # import from Odoo, Drive, SharePoint now
+python -m app.cli test-push --email someone@acme.com     # real FCM push to their browsers
+python -m app.cli check-storage                          # real bucket: region, privacy, signed URLs, size limit
+python -m app.cli db-roles                               # migration and runtime roles (see below)
 ```
 
 ## Testing and checks
 
 ```bash
-docker compose up -d postgres      # tests use a separate pruflo_test database, recreated each run
+docker compose up -d               # tests use a separate pruflo_test database, recreated each run
 ruff check . && ruff format --check .
 mypy app
 pytest
 ```
 
-The same checks run in GitHub Actions (`.github/workflows/backend-ci.yml`) on pull requests that touch `backend/`.
+The same checks run in GitHub Actions (`.github/workflows/backend-ci.yml`) on pull requests that touch `backend/`. `tests/test_gcp_emulators.py` runs the upload flow through the real Google client libraries against the fake GCS server and the Pub/Sub emulator; it's skipped locally if they aren't running, and required in CI.
 
 ## Database migrations
 
@@ -172,20 +188,44 @@ alembic check                       # models and migrations agree
 
 Review the generated file before committing. Run migrations as a release step with the migration identity, never at app startup. `review_actions` and `audit_events` are append-only: a database trigger rejects updates and deletes.
 
+### Database roles
+
+Two roles keep the app away from the schema (`app/db/roles.py`):
+
+- **`pruflo_migrator`** owns the schema and is the only one that runs migrations (`PRUFLO_MIGRATION_DATABASE_URL`).
+- **`pruflo_app`** is what the API and worker log in as (`PRUFLO_DATABASE_URL`). It can read and write data, but can't create, alter or drop tables, can't truncate, and can only insert into `review_actions` and `audit_events`. Not being the owner, it can't switch their triggers off either.
+
+Set them up once per database, as an admin, after the first migration:
+
+```bash
+# Local: creates both roles
+PRUFLO_ADMIN_DATABASE_URL=postgresql+psycopg://pruflo:...@localhost:5433/pruflo \
+PRUFLO_MIGRATOR_PASSWORD=... PRUFLO_RUNTIME_PASSWORD=... python -m app.cli db-roles
+
+# Cloud SQL: create the users first, then run it as the postgres user
+gcloud sql users create pruflo_migrator --instance=pruflo --password=...
+gcloud sql users create pruflo_app --instance=pruflo --password=...
+PRUFLO_ADMIN_DATABASE_URL=... python -m app.cli db-roles --no-create
+```
+
+It's safe to run again; do so after a migration that adds an append-only table. Tables added by later migrations get the runtime grants automatically.
+
 ## Deploying to Google Cloud
 
 Plan Step 3 covers this; it hasn't been done yet. The pieces, all in `asia-southeast1`:
 
 | Resource | Notes |
 | --- | --- |
-| Cloud SQL for PostgreSQL 16 | Private IP; separate migration and runtime users |
+| Cloud SQL for PostgreSQL 16 | Private IP; separate migration and runtime users (`python -m app.cli db-roles`) |
 | Cloud Storage bucket | Uniform access, public access prevention; holds evidence and reports |
 | Artifact Registry | `Dockerfile` (API) and `Dockerfile.worker` (worker, includes fonts for PDFs) |
 | Cloud Run `pruflo-api` | `PRUFLO_STORAGE_BACKEND=gcs`, `PRUFLO_QUEUE_BACKEND=pubsub`, public, min instances 0 |
 | Cloud Run `pruflo-worker` | No unauthenticated access, concurrency 1, same image settings plus the worker variables |
 | Pub/Sub topic `evidence-jobs` | Push subscription to `https://<worker>/pubsub/push` with an OIDC token; retry backoff 10–600 s; dead-letter topic after 5 deliveries |
-| Cloud Scheduler | OIDC calls to the worker: `POST /tasks/dispatch-outbox` and `POST /tasks/retry-webhooks` every minute; `POST /tasks/weekly-summary` on Mondays at 07:00 Asia/Singapore |
-| Secret Manager | `PRUFLO_DATABASE_URL`, `PRUFLO_SECRETS_KEY` |
+| Cloud Scheduler | OIDC calls to the worker: `POST /tasks/dispatch-outbox` and `POST /tasks/retry-webhooks` every minute; `POST /tasks/sync-connectors` every 15 minutes; `POST /tasks/weekly-summary` on Mondays at 07:00 Asia/Singapore |
+| Secret Manager | `PRUFLO_DATABASE_URL`, `PRUFLO_MIGRATION_DATABASE_URL`, `PRUFLO_SECRETS_KEY`, `PRUFLO_INBOUND_EMAIL_TOKEN`, the OAuth client secrets |
+| Inbound mail (optional) | SendGrid Inbound Parse (raw) or a Mailgun route posting to `https://<api>/v1/inbound/email?token=...`; MX for `PRUFLO_INBOUND_EMAIL_DOMAIN` |
+| OAuth apps (optional) | Google OAuth web client and an Entra ID app, both with redirect URI `https://<api>/v1/connectors/oauth/callback` |
 | Document AI | OCR processor, optional |
 
 Give the API's service account Storage object admin on the bucket, Pub/Sub publisher, Cloud SQL client, Secret Manager accessor, and Service Account Token Creator on itself (for signed URLs). Give the worker the same (it also publishes follow-up events), plus Document AI API user and Firebase Cloud Messaging admin (`roles/firebasecloudmessaging.admin`, for push). If the Firebase project (`login-register-125ef`) isn't the GCP project the services run in, also grant both service accounts **Firebase Authentication Admin** on the Firebase project, for the revocation check and push. Don't download service-account keys.
@@ -195,7 +235,9 @@ Give the API's service account Storage object admin on the bucket, Pub/Sub publi
 - No secrets in the repository. Local credentials live in the git-ignored `backend/.env`; cloud secrets in Secret Manager.
 - Signed URLs expire after 10 minutes and are never logged. uvicorn runs with `--no-access-log`; the app logs one JSON line per request without the query string.
 - Logs never contain document text, tokens or keys.
-- Webhook URLs must be HTTPS and resolve to public addresses, checked on save and before each send (SSRF protection). Redirects aren't followed.
+- Webhook and Odoo URLs must be HTTPS and resolve to public addresses, checked on save and before each call (SSRF protection). Redirects aren't followed.
+- Document-source credentials and refresh tokens are encrypted at rest and never returned. OAuth `state` is signed, expires in 15 minutes and works once; the return URL must be a page of the web app.
+- Inbound mail is accepted only with the shared token, from a verified sender who is a member allowed to upload; the address alone isn't a credential.
 - CSV exports neutralise cells that spreadsheet apps would run as formulas.
 - Uploaded documents are untrusted: they're parsed as data and never executed. Macro-enabled Office files and encrypted PDFs are refused.
 

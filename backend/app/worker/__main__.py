@@ -5,6 +5,11 @@ Process every file that's waiting or due a retry, right now, in this process:
     python -m app.worker drain
 
 On Cloud Run this isn't needed: Pub/Sub delivers each job to the worker.
+
+Import new files from Odoo, Google Drive and SharePoint now, whether or not
+they're due (then drain to process them):
+
+    python -m app.worker sync-connectors
 """
 
 import argparse
@@ -75,8 +80,15 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("drain", help="process waiting files now, in this process")
     sub.add_parser("weekly-summary", help="send this week's summaries now")
+    sub.add_parser("sync-connectors", help="import new files from document sources now")
     args = parser.parse_args()
     with Session(get_engine()) as db:
+        if args.command == "sync-connectors":
+            from app.connectors.sync import sync_due
+
+            totals = sync_due(db, get_storage(), force=True)
+            print(", ".join(f"{k}: {v}" for k, v in totals.items()))  # noqa: T201
+            return
         if args.command == "weekly-summary":
             from app.services import notifications
 

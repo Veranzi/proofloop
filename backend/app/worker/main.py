@@ -7,6 +7,8 @@
   outbox events the API couldn't publish straight away.
 - POST /tasks/retry-webhooks: Cloud Scheduler (every minute) re-sends failed
   webhook deliveries on the contract's schedule.
+- POST /tasks/sync-connectors: Cloud Scheduler (every 15 minutes) imports new
+  files from Odoo, Google Drive and SharePoint.
 
 Both require a Google-signed OIDC token for one of the allowed service
 accounts. The service must not be reachable without it.
@@ -132,6 +134,17 @@ def create_worker_app() -> FastAPI:
         from app.services import webhooks
 
         return {"sent": webhooks.retry_due(db)}
+
+    @app.post("/tasks/sync-connectors", dependencies=[Depends(verify_invoker)])
+    def sync_connectors(
+        db: Session = Depends(get_db), queue: Queue = Depends(get_queue)
+    ) -> dict[str, int]:
+        """Cloud Scheduler, every 15 minutes: import new files from polled sources."""
+        from app.connectors.sync import sync_due
+
+        totals = sync_due(db, queue.storage)
+        dispatch_outbox(db, queue.publisher)
+        return totals
 
     return app
 

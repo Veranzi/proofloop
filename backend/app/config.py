@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     # Locally it's built from the parts below; the password lives only in the
     # git-ignored backend/.env, which docker-compose.yml reads too.
     database_url: str = ""
+    # Migrations log in as a separate role that owns the schema; the API and
+    # worker use database_url (the runtime role, which can't change the schema
+    # or rewrite append-only tables). Falls back to the runtime URL locally.
+    migration_database_url: str = ""
     db_user: str = "pruflo"
     db_password: str = ""
     db_host: str = "localhost"
@@ -43,6 +47,11 @@ class Settings(BaseSettings):
     evidence_bucket: str = "pruflo-evidence-local"
     pubsub_topic: str = "evidence-jobs"
     signed_url_minutes: int = 10
+    # Signs URLs through the IAM signBlob API when the credentials can't sign
+    # themselves (e.g. a person's gcloud login running check-storage; they need
+    # Service Account Token Creator on it). On Cloud Run the runtime service
+    # account is used automatically.
+    signing_service_account: str = ""
     # "gcs" on Cloud Run; "local" stores files on disk and serves uploads from this API.
     storage_backend: Literal["gcs", "local"] = "local"
     local_storage_dir: str = ".local-storage"
@@ -66,6 +75,26 @@ class Settings(BaseSettings):
     documentai_location: str = ""
     documentai_processor_id: str = ""
 
+    # Document sources (Docs/Integrations_API_Contract.md §3). Each one is
+    # offered only once its settings are present.
+    # Email inbox: the inbound mail service (SendGrid Inbound Parse, Mailgun
+    # routes, or any relay) posts each message to /v1/inbound/email with this
+    # token. Addresses look like evidence+<tag>@<inbound_email_domain>.
+    inbound_email_domain: str = ""
+    inbound_email_token: str = ""
+    # The authserv-id the mail service writes into Authentication-Results
+    # (e.g. mx.sendgrid.net). When set, only that header is trusted.
+    inbound_authserv_id: str = ""
+    # OAuth apps for Google Drive (read-only) and SharePoint (Sites.Selected).
+    # The redirect URI to register is <public_base_url>/v1/connectors/oauth/callback.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    microsoft_oauth_client_id: str = ""
+    microsoft_oauth_client_secret: str = ""
+    # How often Cloud Scheduler should call /tasks/sync-connectors; a source
+    # synced more recently than this is skipped.
+    connector_sync_minutes: int = 15
+
     # Encrypts secrets the API must read back, such as webhook signing secrets
     # (a Fernet key: python -c "from cryptography.fernet import Fernet;
     # print(Fernet.generate_key().decode())"). Required outside local and test.
@@ -79,6 +108,10 @@ class Settings(BaseSettings):
     auth_dev_mode: bool = False
     # App Check is skipped in local and test, and enforced everywhere else.
     app_check_required: bool = True
+
+    @property
+    def migration_url(self) -> str:
+        return self.migration_database_url or self.sqlalchemy_url
 
     @property
     def sqlalchemy_url(self) -> str:

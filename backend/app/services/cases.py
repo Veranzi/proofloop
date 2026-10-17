@@ -27,6 +27,59 @@ def next_reference(db: Session, tenant_id: str) -> str:
     return f"{prefix}-{after - 1:03d}"
 
 
+def create_imported(
+    db: Session,
+    tenant_id: str,
+    title: str,
+    *,
+    created_by: str | None,
+    source: str,
+    principal: Principal | None = None,
+) -> Case:
+    """A case opened by a document source (an email, a Drive folder, an Odoo
+    order). Whoever is behind it becomes a member, like the creator of a case."""
+    from app.ids import new_id
+
+    case = Case(
+        id=new_id("case"),
+        tenant_id=tenant_id,
+        reference=next_reference(db, tenant_id),
+        title=(title.strip() or "Imported documents")[:200],
+        status=CaseStatus.AWAITING_EVIDENCE,
+        created_by=created_by,
+    )
+    db.add(case)
+    db.flush()
+    if created_by:
+        add_member(db, case.id, created_by, created_by)
+    details = {"reference": case.reference, "title": case.title, "source": source}
+    if principal is not None:
+        audit.record(
+            db, principal, "case.created", "case", case.id, case_id=case.id, details=details
+        )
+    else:
+        audit.record_system(
+            db, tenant_id, "case.created", "case", case.id, case_id=case.id, details=details
+        )
+    return case
+
+
+def find_by_reference(db: Session, tenant_id: str, text: str) -> Case | None:
+    """The first case reference ("PL-001") mentioned in ``text``, if it's one of this tenant's."""
+    import re
+
+    prefix = db.scalar(select(Tenant.case_prefix).where(Tenant.id == tenant_id)) or "PL"
+    for match in re.finditer(rf"\b{re.escape(prefix)}-(\d{{3,}})\b", text, re.IGNORECASE):
+        case = db.scalar(
+            select(Case).where(
+                Case.tenant_id == tenant_id, Case.reference == f"{prefix}-{match.group(1)}"
+            )
+        )
+        if case is not None:
+            return case
+    return None
+
+
 def add_member(db: Session, case_id: str, user_id: str, added_by: str | None) -> None:
     exists = db.scalar(
         select(CaseMember.case_id).where(
