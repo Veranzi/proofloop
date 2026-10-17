@@ -13,9 +13,18 @@ import 'integration_widgets.dart';
 /// Sources documents can be pulled in from.
 ///
 /// API: list (43), connect (44), disconnect (45). Credentials are sent once
-/// to the API and kept in Secret Manager; they are never returned.
+/// to the API and stored encrypted; they are never returned.
 class ConnectorsTab extends StatefulWidget {
   const ConnectorsTab({super.key});
+
+  /// Set when this page was opened by the API's OAuth callback, which sends
+  /// the browser back to `/?connector=<kind>&status=<status>#/integrations`.
+  static Map<String, String>? get oauthResult {
+    final query = Uri.base.queryParameters;
+    return query.containsKey('connector') && !_resultShown ? query : null;
+  }
+
+  static bool _resultShown = false;
 
   @override
   State<ConnectorsTab> createState() => _ConnectorsTabState();
@@ -24,6 +33,27 @@ class ConnectorsTab extends StatefulWidget {
 class _ConnectorsTabState extends State<ConnectorsTab> {
   final _api = IntegrationsApi();
   late Future<List<Connector>> _future = _api.connectors();
+
+  @override
+  void initState() {
+    super.initState();
+    final result = ConnectorsTab.oauthResult;
+    if (result == null) return;
+    ConnectorsTab._resultShown = true; // once per page load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final connected = result['status'] == 'connected';
+      final kind = ConnectorKind.values
+          .where((k) => k.wire == result['connector'])
+          .firstOrNull;
+      final name = kind?.label ?? 'Source';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(connected
+            ? '$name connected. New files are imported every 15 minutes.'
+            : '$name wasn\'t connected: ${result['message'] ?? 'try again.'}'),
+      ));
+    });
+  }
 
   void _reload() => setState(() { _future = _api.connectors(); });
 
@@ -298,9 +328,9 @@ class _FolderDialogState extends State<_FolderDialog> {
             if (!_formKey.currentState!.validate()) return;
             Navigator.of(context).pop(<String, dynamic>{
               'folder': _folder.text.trim(),
-              // The API's OAuth callback sends the browser back here.
-              'return_url': Uri.base.replace(path: '/integrations', query: '',
-                  fragment: '').toString(),
+              // The API's OAuth callback sends the browser back here (the
+              // app uses hash routes, so the page is in the fragment).
+              'return_url': '${Uri.base.origin}/#/integrations',
             });
           },
           child: Text('Continue to $provider'),

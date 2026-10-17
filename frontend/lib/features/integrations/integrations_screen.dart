@@ -38,6 +38,8 @@ class IntegrationsScreen extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: DefaultTabController(
                 length: _tabs.length,
+                // Back from a Drive or SharePoint consent screen: show Sources.
+                initialIndex: ConnectorsTab.oauthResult != null ? 2 : 0,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

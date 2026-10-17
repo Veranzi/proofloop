@@ -78,7 +78,7 @@ Then run `flutter run -d chrome --dart-define-from-file=dart_defines.local.json`
 
 - **Bell.** The bell in the top bar shows how many notifications are unread. The count is checked every minute while you're signed in. Opening it lists recent notifications; tapping one marks it read and opens the case or report it's about, and "Mark all as read" clears the count (endpoints 51–53).
 - **What you get** is set under **Profile → Notifications**: evidence processing finished or failed, a case assigned to you, a case ready for your review, a report ready, and a Monday summary (off by default). Each switch saves straight away (`PATCH /v1/me`).
-- **Push.** With `FIREBASE_VAPID_KEY` set, the same notifications can also arrive as browser push messages, controlled by the "Also send to my devices" switch. Push needs a Firebase Cloud Messaging service worker at `web/firebase-messaging-sw.js` containing the same Firebase web config as the build. It isn't committed because that config is passed at build time; add it when you turn push on (see the [FlutterFire messaging guide](https://firebase.flutter.dev/docs/messaging/usage#web)). Without the key or the worker, push is skipped and nothing else changes.
+- **Push.** With `FIREBASE_VAPID_KEY` set, the same notifications can also arrive as browser push messages, controlled by the "Also send to my devices" switch. The service worker FCM needs, `web/firebase-messaging-sw.js`, is committed: it shows the notification straight from the push payload and opens its link on click, so it needs no Firebase config. Without the key, push is skipped and nothing else changes. To check a real send once the key is set and someone has allowed notifications: `python -m app.cli test-push --email ...` in `backend/`.
 - **Profile photo.** **Profile → Change photo** takes a PNG or JPEG up to 5 MB. It's uploaded through a signed URL (endpoints 54–55); the server checks the file and re-encodes it at most 512 × 512 px, which also strips location data. Photo links expire after about 10 minutes, so the app falls back to initials if a link has expired, and gets a fresh one the next time it loads your profile.
 
 Admins also have **Admin → Customers** (cases can be filed under a customer, chosen when creating or editing a case), **Admin → Audit log**, and a **Members** section on each case to choose who can see it.
@@ -118,7 +118,7 @@ Both workflows pass the build settings from GitHub repository variables (**Setti
 | `FIREBASE_APP_ID` | yes | From the Firebase web app config |
 | `FIREBASE_MESSAGING_SENDER_ID` | yes | From the Firebase web app config |
 | `FIREBASE_APP_CHECK_SITE_KEY` | if the API requires App Check | reCAPTCHA v3 site key |
-| `FIREBASE_VAPID_KEY` | only for push | Web push key. The workflows don't pass it yet: to turn push on, add `--dart-define=FIREBASE_VAPID_KEY=${{ vars.FIREBASE_VAPID_KEY }}` to the build step in both workflows and commit `web/firebase-messaging-sw.js` |
+| `FIREBASE_VAPID_KEY` | only for push | Web push key. Both workflows pass it; set the repository variable to turn push on |
 
 A **Check build settings** step stops the workflow if a required variable is missing or `API_BASE_URL` isn't `https`, so a misconfigured build never replaces the live site.
 

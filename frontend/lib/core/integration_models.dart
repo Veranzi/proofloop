@@ -154,7 +154,8 @@ enum ConnectorKind {
   emailInbox(
     'email_inbox',
     'Email inbox',
-    'Forward documents to a PruFlo address and they are added to a case.',
+    'Send or forward documents from your PruFlo account\'s email address; '
+    'they are added to a case (put [PL-001] in the subject for an existing one).',
   ),
   googleDrive(
     'google_drive',
