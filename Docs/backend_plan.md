@@ -19,11 +19,11 @@ Last updated 2026-10-17. Status is judged against each step's **Done when** line
 | --- | --- | --- |
 | 0 Decisions | ✅ | Region, endpoint paths, review decisions, case statuses, roles, file limits |
 | 1 Foundation | ✅ | Settings, error envelope, request IDs, JSON logs, paging, Docker services, CI workflow |
-| 2 Database | 🟠 | 25 tables, 4 migrations; separate database roles still to do |
+| 2 Database | ✅ | 25 tables, 5 migrations, separate migration and runtime roles (`python -m app.cli db-roles`, tested); apply them to Cloud SQL in Step 3 |
 | 3 GCP environment | ❌ | Needs access to the GCP project |
 | 4 Authentication | ✅ | Every check in its Done-when line passes. Firebase project `login-register-125ef` is connected; a real Firebase sign-in hasn't been tried yet |
 | 5 Cases | ✅ | Endpoints 3–6 and 16 |
-| 6 Evidence upload | 🟠 | Endpoints 7–11, the Flutter upload screen and outbox publishing; real Cloud Storage bucket needs Step 3 |
+| 6 Evidence upload | 🟠 | Endpoints 7–11, the Flutter upload screen and outbox publishing; the whole flow runs through the Google client libraries against the GCS and Pub/Sub emulators (CI). Signature and size-range enforcement need the real bucket: `python -m app.cli check-storage` (Step 3) |
 | 7 Worker | ✅ | Idempotent jobs, retries, outbox → Pub/Sub, push endpoint; runs inline locally |
 | 8 Text extraction | 🟠 | PDF, Word, Excel, CSV, TXT and endpoint 12 done; real Document AI OCR needs Step 3 |
 | 9 Gemini extraction | ❌ | Needs Vertex AI in the GCP project |
@@ -33,8 +33,8 @@ Last updated 2026-10-17. Status is judged against each step's **Done when** line
 | 13 Human review | ✅ | Endpoints 13–15; case status follows the decisions. Findings appear once Steps 9–11 exist |
 | 14 Reports and export | ✅ | PDF reports (17–19) and JSON/CSV export (50) |
 | 15 Admin | ✅ | Users, customers, case members, audit log (24–33), all with screens |
-| 16 Integrations | 🟠 | API keys, webhooks, rules and providers done; document sources report `coming_soon` until importers exist |
-| + Notifications and profile | 🟠 | Notifications with preferences, profile photo, customer picker (51–57) done; push to devices built but never run against real Firebase |
+| 16 Integrations | 🟠 | API keys, webhooks, rules, providers and all four importers (email inbox, Odoo, Google Drive, SharePoint) built and tested against fake services. Each source turns on when its settings exist; none has run against the real service yet (needs inbound mail, OAuth apps, an Odoo instance). Admin email for paused webhooks waits for an email service |
+| + Notifications and profile | 🟠 | Notifications with preferences, profile photo, customer picker (51–57) done. Push: the missing web service worker is added and the FCM message passes firebase-admin's encoder; a real send waits for credentials on `login-register-125ef` and a VAPID key (`python -m app.cli test-push`) |
 | 17 Hardening | ❌ | |
 | 18 Case Q&A (optional) | ❌ | |
 
@@ -200,7 +200,7 @@ API keys use scopes instead of roles and can never record a decision or call `/v
 
 ## 🟠 Step 2: database schema and migrations
 
-> **Status:** all 25 tables (with `notifications`), constraints and 4 migrations are done; `review_actions` and `audit_events` are append-only through database triggers. **Left:** separate migration and runtime database roles (do this with Step 3).
+> **Status:** done. All 25 tables (with `notifications`), constraints and 5 migrations; `review_actions` and `audit_events` are append-only through database triggers **and** through the roles: `pruflo_migrator` owns the schema and runs Alembic (`PRUFLO_MIGRATION_DATABASE_URL`), `pruflo_app` can't change the schema, truncate, or update or delete the append-only tables (`app/db/roles.py`, `tests/test_roles.py`). Applying the roles to Cloud SQL happens with Step 3.
 
 
 Create the schema in Alembic, using `NUMERIC` for money and quantities, UUID primary keys, foreign keys and indexes on `case_id`, `evidence_id`, `status`, `created_at` and `rule_id`. Enum columns use check constraints with the Step 0 values.
@@ -254,7 +254,7 @@ Set this up early so that each later step can be deployed and shown:
 
 ## 🟠 Step 6: evidence upload
 
-> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server, get a job and an outbox event, and the outbox is published (Step 7). **Left:** Cloud Storage signed URLs tested against a real bucket (Step 3).
+> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server, get a job and an outbox event, and the outbox is published (Step 7). `tests/test_gcp_emulators.py` runs 7 → signed PUT → 8 → outbox → Pub/Sub → 11 through `GcsStorage` and `PubSubPublisher` against the fake GCS server and the Pub/Sub emulator, in CI too: the row shows `queued` and the message reaches Pub/Sub. **Left:** the fake server doesn't verify signatures or the size range, so run `python -m app.cli check-storage` against the real bucket in Step 3 (it checks region, uniform access, public access prevention, signed PUT/GET, the size limit and that unsigned reads fail).
 
 
 1. Endpoint **7** `upload-url`: check permission and the declared extension and size against the Step 0 limits, create an `evidence_files` row, and return a short-lived V4 signed PUT URL for an object key **the server chooses**. The URL is bound to the size limit.
@@ -348,7 +348,12 @@ Endpoints **24–33**: users (list, invite, change role, disable), customers, ca
 
 ## 🟠 Step 16: integrations
 
-> **Status:** API keys (34–36), webhooks (37–42, signed, retried, SSRF-checked), rules (46–47) and providers (48–49) are done. Document sources (43–45) list every kind as `coming_soon` and refuse to connect: each needs an importer and an external service (inbound mail, Google and Microsoft OAuth apps, an Odoo poller). Pausing a failing webhook doesn't email admins yet; there's no email service.
+> **Status:** API keys (34–36), webhooks (37–42, signed, retried, SSRF-checked), rules (46–47) and providers (48–49) are done. Document sources (43–45) have importers (`app/connectors/`), all feeding `services.evidence.import_file`, so imports get the same checks as uploads and are never imported twice:
+> - **Email inbox:** `POST /v1/inbound/email` (raw MIME, SendGrid or Mailgun form posts, shared token). The sender needs SPF or DKIM aligned with the From domain, or DMARC, in the topmost `Authentication-Results`, and must be a member who may upload. `[PL-001]` in the subject picks the case.
+> - **Odoo:** login checked on save; attachments on purchase orders, receipts and vendor bills, grouped by order, from the moment of connecting.
+> - **Google Drive and SharePoint:** OAuth with signed, single-use state; subfolders become cases; polled every 15 minutes (`/tasks/sync-connectors`).
+>
+> A source is offered only when its settings exist (inbound mail domain and token, OAuth client), otherwise it stays `coming_soon`; SAP has no importer. **Left:** none has run against the real service (needs an MX record and mail service, the two OAuth apps, an Odoo instance). Pausing a failing webhook doesn't email admins yet; there's no email service.
 
 Build in this order (from the contract):
 
