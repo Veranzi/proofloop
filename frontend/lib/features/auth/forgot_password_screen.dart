@@ -18,6 +18,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _email = TextEditingController();
   bool _busy = false;
   bool _sent = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -27,15 +28,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _busy = true);
-    // Firebase: sendPasswordResetEmail. Always report success so the screen
-    // does not reveal which emails have accounts.
-    await AuthService.instance.sendPasswordReset(_email.text.trim());
-    if (mounted) {
-      setState(() {
-        _busy = false;
-        _sent = true;
-      });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    // Firebase doesn't say whether the email has an account, so the screen
+    // doesn't either.
+    try {
+      await AuthService.instance.sendPasswordReset(_email.text.trim());
+      if (mounted) setState(() => _sent = true);
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -74,6 +79,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               validator: Validators.email,
             ),
             const SizedBox(height: 24),
+            if (_error != null) ...[
+              Text(_error!,
+                  style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+              const SizedBox(height: 12),
+            ],
             FilledButton(
               onPressed: _busy ? null : _submit,
               child: _busy

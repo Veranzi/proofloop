@@ -39,7 +39,15 @@ def install_cors(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="Pruflo API", version="0.1.0")
+    # Interactive docs only where developers work; the contracts are in Docs/.
+    show_docs = get_settings().env in ("local", "test", "dev")
+    app = FastAPI(
+        title="Pruflo API",
+        version="0.1.0",
+        docs_url="/docs" if show_docs else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if show_docs else None,
+    )
     install_error_handlers(app)
     install_request_middleware(app)
     install_cors(app)

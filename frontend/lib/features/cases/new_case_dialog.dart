@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../core/auth_service.dart';
-import '../../core/mock_repository.dart';
+import '../../app/theme.dart';
+import '../../core/api.dart';
 import '../../core/models.dart';
+import '../../widgets/customer_picker.dart';
 import '../../widgets/form_fields.dart';
 
 /// Creates a case (POST /v1/cases) and returns it, or null if cancelled.
@@ -26,6 +27,9 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
   final _category = TextEditingController();
   final _description = TextEditingController();
   Priority _priority = Priority.medium;
+  String? _customerId;
+  bool _busy = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -35,21 +39,32 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
     super.dispose();
   }
 
-  void _create() {
+  Future<void> _create() async {
     if (!_formKey.currentState!.validate()) return;
-    final item = MockRepository.instance.addCase(
-      title: _title.text.trim(),
-      category: _category.text.trim(),
-      description: _description.text.trim(),
-      priority: _priority,
-      assignedTo: AuthService.instance.user?.name ?? '',
-    );
-    Navigator.of(context).pop(item);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final item = await PrufloApi().createCase(
+        title: _title.text.trim(),
+        category: _category.text.trim(),
+        description: _description.text.trim(),
+        priority: _priority,
+        customerId: _customerId,
+      );
+      if (mounted) Navigator.of(context).pop(item);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('New Case'),
       content: SizedBox(
         width: 440,
@@ -61,7 +76,7 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
             children: [
               LabeledField(
                 label: 'Title',
-                hint: 'e.g. Fraud Investigation',
+                hint: 'e.g. Supplier delivery check',
                 controller: _title,
                 validator: (v) => Validators.required(v, 'Title'),
               ),
@@ -91,6 +106,18 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
                 selected: {_priority},
                 onSelectionChanged: (s) => setState(() => _priority = s.first),
               ),
+              const SizedBox(height: 14),
+              CustomerPicker(
+                value: _customerId,
+                enabled: !_busy,
+                onChanged: (v) => setState(() => _customerId = v),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!,
+                    style:
+                        const TextStyle(color: AppColors.danger, fontSize: 13)),
+              ],
             ],
           ),
         ),
@@ -102,8 +129,8 @@ class _NewCaseDialogState extends State<_NewCaseDialog> {
         ),
         FilledButton(
           style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
-          onPressed: _create,
-          child: const Text('Create Case'),
+          onPressed: _busy ? null : _create,
+          child: Text(_busy ? 'Creating…' : 'Create Case'),
         ),
       ],
     );

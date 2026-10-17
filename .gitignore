@@ -8,5 +8,11 @@ Thumbs.db
 .env
 *.pem
 service-account*.json
+
+# Tool debug logs (may contain account details)
 firebase-debug.log
 *-debug.log
+npm-debug.log*
+
+# Claude Code worktrees (local only)
+.claude/worktrees/

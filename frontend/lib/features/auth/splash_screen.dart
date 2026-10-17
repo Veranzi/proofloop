@@ -9,27 +9,46 @@ import '../../widgets/brand_logo.dart';
 
 /// Brand splash shown on launch, then hands off to sign-in or the dashboard.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, this.from});
+
+  /// The page that was open before a reload; reopened once signed in.
+  final String? from;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  Timer? _timer;
+  final _auth = AuthService.instance;
+  Timer? _minimum;
+  bool _shownLongEnough = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer(const Duration(milliseconds: 1800), () {
-      if (!mounted) return;
-      context.go(AuthService.instance.isSignedIn ? '/dashboard' : '/login');
+    // Show the brand briefly, and longer only while the session is checked.
+    _minimum = Timer(const Duration(milliseconds: 900), () {
+      _shownLongEnough = true;
+      _maybeContinue();
     });
+    _auth.addListener(_maybeContinue);
+  }
+
+  void _maybeContinue() {
+    if (!mounted || !_shownLongEnough || !_auth.ready) return;
+    _auth.removeListener(_maybeContinue);
+    final from = widget.from;
+    // Only app routes: never follow an absolute URL from the query string.
+    final back = from != null && from.startsWith('/') && !from.startsWith('//')
+        ? from
+        : '/dashboard';
+    context.go(_auth.isSignedIn ? back : '/login');
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _minimum?.cancel();
+    _auth.removeListener(_maybeContinue);
     super.dispose();
   }
 

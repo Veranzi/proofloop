@@ -12,6 +12,14 @@ const _months = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
+/// "856 KB", "2.4 MB"
+String formatBytes(int bytes) {
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / 1024).ceil()} KB';
+}
+
 /// "Apr 24, 2025 · 2:15 PM"
 String formatDateTime(DateTime t) {
   final hour = t.hour % 12 == 0 ? 12 : t.hour % 12;

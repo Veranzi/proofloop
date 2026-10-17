@@ -3,15 +3,15 @@
 A step-by-step summary of how the backend will be built. It follows two existing documents and does not replace them:
 
 - `Docs/Pruflo_GCP_Technical_Architecture_Report.docx`: the architecture, data model, security and roadmap.
-- `Docs/Integrations_API_Contract.md`: the exact request and response shapes for endpoints 34–50.
+- `Docs/API_Contract.md` and `Docs/Integrations_API_Contract.md`: the exact request and response shapes for endpoints 1–57.
 
 Where this plan differs from the report (region, endpoint paths, review decisions, case statuses), **this plan and the frontend win**. The decisions are listed in Step 0.
 
-Endpoint numbers (1–50) and paths are the ones in `frontend/lib/core/api_endpoints.dart`. The frontend currently runs on mock data (`mock_repository.dart`, `integrations_repository.dart`). Each endpoint we ship replaces one mock method, and the screens stay the same.
+Endpoint numbers (1–57) and paths are the ones in `frontend/lib/core/api_endpoints.dart`. The frontend has no mock data: every screen reads and writes through the API.
 
 ## Progress
 
-Last updated 2026-10-16. Status is judged against each step's **Done when** line.
+Last updated 2026-10-17. Status is judged against each step's **Done when** line.
 
 ✅ done · 🟠 partly done · ❌ not started
 
@@ -19,31 +19,35 @@ Last updated 2026-10-16. Status is judged against each step's **Done when** line
 | --- | --- | --- |
 | 0 Decisions | ✅ | Region, endpoint paths, review decisions, case statuses, roles, file limits |
 | 1 Foundation | ✅ | Settings, error envelope, request IDs, JSON logs, paging, Docker services, CI workflow |
-| 2 Database | 🟠 | All tables and migrations; separate database roles still to do |
+| 2 Database | ✅ | 25 tables, 5 migrations, separate migration and runtime roles (`python -m app.cli db-roles`, tested); apply them to Cloud SQL in Step 3 |
 | 3 GCP environment | ❌ | Needs access to the GCP project |
-| 4 Authentication | 🟠 | Done locally; real Firebase tokens not yet tested |
+| 4 Authentication | ✅ | Every check in its Done-when line passes. Firebase project `login-register-125ef` is connected; a real Firebase sign-in hasn't been tried yet |
 | 5 Cases | ✅ | Endpoints 3–6 and 16 |
-| 6 Evidence upload | 🟠 | Endpoints 7–11 and the Flutter upload screen; Pub/Sub publishing still to do |
-| 7 Worker | ❌ | Next up. Uploaded files stay at `queued` until this exists |
-| 8 Text extraction | ❌ | |
+| 6 Evidence upload | 🟠 | Endpoints 7–11, the Flutter upload screen and outbox publishing; the whole flow runs through the Google client libraries against the GCS and Pub/Sub emulators (CI). Signature and size-range enforcement need the real bucket: `python -m app.cli check-storage` (Step 3) |
+| 7 Worker | ✅ | Idempotent jobs, retries, outbox → Pub/Sub, push endpoint; runs inline locally |
+| 8 Text extraction | 🟠 | PDF, Word, Excel, CSV, TXT and endpoint 12 done; real Document AI OCR needs Step 3 |
 | 9 Gemini extraction | ❌ | Needs Vertex AI in the GCP project |
 | 10 Grounding | ❌ | |
 | 11 Rule engine | ❌ | |
 | 12 Explanations | ❌ | |
-| 13 Human review | ❌ | |
-| 14 Reports and export | ❌ | |
-| 15 Admin | ❌ | Until then, people are invited with `python -m app.cli invite` |
-| 16 Integrations | 🟠 | API keys (34–36) done in Step 4; webhooks, connectors and providers not started |
+| 13 Human review | ✅ | Endpoints 13–15; case status follows the decisions. Findings appear once Steps 9–11 exist |
+| 14 Reports and export | ✅ | PDF reports (17–19) and JSON/CSV export (50) |
+| 15 Admin | ✅ | Users, customers, case members, audit log (24–33), all with screens |
+| 16 Integrations | 🟠 | API keys, webhooks, rules, providers and all four importers (email inbox, Odoo, Google Drive, SharePoint) built and tested against fake services. Each source turns on when its settings exist; none has run against the real service yet (needs inbound mail, OAuth apps, an Odoo instance). Admin email for paused webhooks waits for an email service |
+| + Notifications and profile | 🟠 | Notifications with preferences, profile photo, customer picker (51–57) done. Push: the missing web service worker is added and the FCM message passes firebase-admin's encoder; a real send waits for credentials on `login-register-125ef` and a VAPID key (`python -m app.cli test-push`) |
 | 17 Hardening | ❌ | |
 | 18 Case Q&A (optional) | ❌ | |
 
 Built along the way, not in the original steps:
 
-- `python -m app.cli` commands: `bootstrap`, `invite` and `remove-user`.
+- Operator commands: `python -m app.cli bootstrap|invite|remove-user` and `python -m app.worker drain|weekly-summary`.
 - Local storage that stands in for Cloud Storage when `PRUFLO_ENV` is `local` or `test`.
-- CORS for `pruflo.web.app` and local development.
-- The Flutter upload screen calls the API when built with `--dart-define=USE_API=true`.
-- Cases have an internal `id` (`case_...`) and a `reference` people see (`PL-001`).
+- CORS for `pruflo.web.app` and local development; API docs (`/docs`) only in `local`, `test` and `dev`.
+- Cases have an internal `id` (`case_...`) and a `reference` people see (`PL-001`), plus `customer_name`.
+- Notifications (51–53) for evidence processed, case assigned, case ready for review, report ready and an optional Monday summary, with per-kind preferences, push through Firebase Cloud Messaging, and 90-day retention.
+- Profile photo (54–56), re-encoded server-side to strip metadata; customer picker (57).
+- The Flutter app is wired to the API end to end with no mock data. It uses Firebase Auth when its config is provided at build time, and otherwise a development sign-in that survives a page reload.
+- Deploy workflows pass the app's settings from GitHub repository variables and refuse to deploy without them. The Firebase variables are set; `API_BASE_URL` waits for Step 3.
 
 ## The rule everything follows
 
@@ -56,7 +60,7 @@ Built along the way, not in the original steps:
 
 ## Target stack and layout
 
-Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 + Alembic, firebase-admin, google-cloud clients (Storage, Pub/Sub, Document AI, Vertex AI), pypdf/pdfplumber, python-docx, openpyxl, WeasyPrint, pytest, Ruff, mypy.
+Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 + Alembic, firebase-admin, google-cloud clients (Storage, Pub/Sub, Document AI, Vertex AI), pypdf/pdfplumber, python-docx, openpyxl, fpdf2 and Pillow, httpx, cryptography, pytest, Ruff, mypy.
 
 ```
 backend/
@@ -196,7 +200,7 @@ API keys use scopes instead of roles and can never record a decision or call `/v
 
 ## 🟠 Step 2: database schema and migrations
 
-> **Status:** all 24 tables, constraints and migrations are done; `review_actions` and `audit_events` are append-only through database triggers. **Left:** separate migration and runtime database roles (do this with Step 3).
+> **Status:** done. All 25 tables (with `notifications`), constraints and 5 migrations; `review_actions` and `audit_events` are append-only through database triggers **and** through the roles: `pruflo_migrator` owns the schema and runs Alembic (`PRUFLO_MIGRATION_DATABASE_URL`), `pruflo_app` can't change the schema, truncate, or update or delete the append-only tables (`app/db/roles.py`, `tests/test_roles.py`). Applying the roles to Cloud SQL happens with Step 3.
 
 
 Create the schema in Alembic, using `NUMERIC` for money and quantities, UUID primary keys, foreign keys and indexes on `case_id`, `evidence_id`, `status`, `created_at` and `rule_id`. Enum columns use check constraints with the Step 0 values.
@@ -231,9 +235,9 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** `/healthz` responds from Cloud Run, and the Flutter build with `--dart-define=API_BASE_URL=...` can reach it.
 
-## 🟠 Step 4: authentication and permissions
+## ✅ Step 4: authentication and permissions
 
-> **Status:** done: Firebase and App Check verification code, invite-only access, API keys with rate limits, the permission table, and endpoints 1, 2, 21–23 and 34–36. **Left:** verify against real Firebase tokens once a Firebase project is connected (local development uses `dev:` tokens); the export and decision routes this step guards come in Steps 13 and 14.
+> **Status:** done. Firebase and App Check verification, invite-only access, API keys with rate limits, the permission table, and endpoints 1, 2, 21–23 and 34–36. Tests confirm a non-member can't reach a case (including signed URLs), a viewer gets `403` on export, and an API key can't decide. The backend accepts tokens from Firebase project `login-register-125ef` (`PRUFLO_FIREBASE_PROJECT`); a Firebase outage returns `503 auth_unavailable`. **Still to try:** one real Firebase sign-in, after Email/Password and Google are enabled in the Firebase console. App Check needs a reCAPTCHA v3 site key before production.
 
 
 - **People:** verify the Firebase ID token server-side with firebase-admin, then verify the App Check token from `X-Firebase-AppCheck`. User identity always comes from the verified token, never from the request body.
@@ -250,7 +254,7 @@ Set this up early so that each later step can be deployed and shown:
 
 ## 🟠 Step 6: evidence upload
 
-> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server and get a job and an outbox event. **Left:** the outbox dispatcher that publishes to Pub/Sub (built with Step 7), and Cloud Storage signed URLs tested against a real bucket (Step 3).
+> **Status:** endpoints 7–11 work end to end from the Flutter upload screen, including drag and drop. Files are checked on the server, get a job and an outbox event, and the outbox is published (Step 7). `tests/test_gcp_emulators.py` runs 7 → signed PUT → 8 → outbox → Pub/Sub → 11 through `GcsStorage` and `PubSubPublisher` against the fake GCS server and the Pub/Sub emulator, in CI too: the row shows `queued` and the message reaches Pub/Sub. **Left:** the fake server doesn't verify signatures or the size range, so run `python -m app.cli check-storage` against the real bucket in Step 3 (it checks region, uniform access, public access prevention, signed PUT/GET, the size limit and that unsigned reads fail).
 
 
 1. Endpoint **7** `upload-url`: check permission and the declared extension and size against the Step 0 limits, create an `evidence_files` row, and return a short-lived V4 signed PUT URL for an object key **the server chooses**. The URL is bound to the size limit.
@@ -263,7 +267,9 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a file can be uploaded from the Flutter app, the evidence row shows `queued`, and a message reaches Pub/Sub.
 
-## ❌ Step 7: worker and processing pipeline skeleton
+## ✅ Step 7: worker and processing pipeline skeleton
+
+> **Status:** done. Jobs are claimed with a 10-minute lease and their results replace earlier ones, so redelivery changes nothing (tested). Permanent errors fail at once; others retry up to 5 times. The worker service (`app/worker/main.py`, `Dockerfile.worker`) takes Pub/Sub pushes and a Cloud Scheduler outbox sweep, both behind OIDC checks. Locally the API runs jobs inline, and `python -m app.worker drain` processes anything waiting. The Pub/Sub and OIDC pieces get their first real run when deployed (Step 3). Case status isn't changed here; reconciliation (Step 11) decides `in_review` or `completed`.
 
 - Pub/Sub pushes to an **authenticated** Cloud Run worker endpoint, which can't be reached from the public internet.
 - The worker is idempotent. It works from a `processing_jobs` row with a unique idempotency key, so a redelivered message never duplicates claims, findings or audit rows.
@@ -273,7 +279,9 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** a test that delivers the same message twice produces exactly one set of results.
 
-## ❌ Step 8: text extraction
+## 🟠 Step 8: text extraction
+
+> **Status:** PDF text layer (lines with positions), Word (paragraphs and table rows), Excel (one page per sheet, rows with cell references), CSV and TXT, plus endpoint 12, are done and tested, including on a real 31-page PDF. Pages with no text layer and images go to OCR. **Left:** the Document AI adapter is written but has only been tested with a stand-in; it needs a processor in the GCP project (Step 3). Until then scans are marked `needs_review` (`ocr_not_configured`).
 
 - **Native parsers first** (cheap, in-region, exact): the PDF text layer, DOCX, XLSX (sheet, row and column kept as the anchor), CSV and TXT.
 - **OCR** only for images and PDF pages that have no text layer, through the `OcrProvider` interface (contract §5) with the **Google Document AI** adapter.
@@ -311,14 +319,18 @@ Set this up early so that each later step can be deployed and shown:
 - The default is a **deterministic template** ("The purchase order lists 100 units; the delivery note records 80.").
 - An optional Gemini rewrite may use only the finding's own values and quotes. It is labeled `machine_generated`.
 
-## ❌ Step 13: human review
+## ✅ Step 13: human review
+
+> **Status:** done. Endpoints 13–15. Cases have no findings until the rule engine (Step 11) runs, so the lists are empty until then.
 
 - Endpoint **15** `decision`: body `{ "decision": "approve" | "reject" | "pending", "note": "...", "correction": { "field", "previous", "new" }? }`. `reject` and `pending` require a note. Allowed for reviewers and admins only; people only, never API keys.
 - Each decision is an append-only `review_actions` row plus an audit event, and it updates `findings.review_status`.
 - When no finding in the case is `pending`, the case moves to `completed`. A finding set back to `pending` moves a completed case back to `in_review`.
 - Fires the `finding.decided` and `case.completed` outbox events.
 
-## ❌ Step 14: reports and export
+## ✅ Step 14: reports and export
+
+> **Status:** done. PDFs are rendered with fpdf2 (pure Python, DejaVu fonts in the worker image) instead of WeasyPrint, which avoids its system libraries. Exports are produced inline; the `202` path for very large cases isn't needed yet.
 
 - Allowed for **investigators, reviewers and admins** who are members of the case. Viewers get `403`.
 - Endpoints **17** and **18**: queue a report and list reports. The worker renders an HTML template to PDF with WeasyPrint, built only from stored claims, findings and review actions, then saves it to the bucket.
@@ -328,13 +340,20 @@ Set this up early so that each later step can be deployed and shown:
 
 **Done when:** the export output matches the shapes the frontend's `integrations_test.dart` checks.
 
-## ❌ Step 15: admin
+## ✅ Step 15: admin
+
+> **Status:** done. Invites don't send email: the person signs in with that address. The last active admin can't be demoted, disabled or removed.
 
 Endpoints **24–33**: users (list, invite, change role, disable), customers, case members, and the audit log viewer. Every change is audited.
 
 ## 🟠 Step 16: integrations
 
-> **Status:** API keys (34–36) are done as part of Step 4. Webhooks, connectors and providers are not started.
+> **Status:** API keys (34–36), webhooks (37–42, signed, retried, SSRF-checked), rules (46–47) and providers (48–49) are done. Document sources (43–45) have importers (`app/connectors/`), all feeding `services.evidence.import_file`, so imports get the same checks as uploads and are never imported twice:
+> - **Email inbox:** `POST /v1/inbound/email` (raw MIME, SendGrid or Mailgun form posts, shared token). The sender needs SPF or DKIM aligned with the From domain, or DMARC, in the topmost `Authentication-Results`, and must be a member who may upload. `[PL-001]` in the subject picks the case.
+> - **Odoo:** login checked on save; attachments on purchase orders, receipts and vendor bills, grouped by order, from the moment of connecting.
+> - **Google Drive and SharePoint:** OAuth with signed, single-use state; subfolders become cases; polled every 15 minutes (`/tasks/sync-connectors`).
+>
+> A source is offered only when its settings exist (inbound mail domain and token, OAuth client), otherwise it stays `coming_soon`; SAP has no importer. **Left:** none has run against the real service (needs an MX record and mail service, the two OAuth apps, an Odoo instance). Pausing a failing webhook doesn't email admins yet; there's no email service.
 
 Build in this order (from the contract):
 
@@ -362,34 +381,37 @@ Endpoint **20**: a read-only assistant with three narrow tools (`get_findings`, 
 | Milestone | Status | Steps | Matches report phase | What you can show |
 | --- | --- | --- | --- | --- |
 | **M1 Vertical slice** | 🟠 | 0–6, 11 (shortfall rule only), 13, 14 (simple PDF) | Phase 1 | Create a case → upload synthetic documents → see the 20-unit shortfall → approve it → export PDF |
-| **M2 Robust ingestion** | ❌ | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
+| **M2 Robust ingestion** | 🟠 | 7, 8 | Phase 2 | PDFs, DOCX, XLSX, CSV and scans are all read, with retries and visible statuses |
 | **M3 Grounded AI** | ❌ | 9, 10, 12 | Phase 3 | Values come from Gemini with source highlights; uncertain ones are flagged |
-| **M4 Review and audit** | ❌ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
+| **M4 Review and audit** | ✅ | 13 (full), 15, 16 (keys, export, webhooks) | Phase 4 | Corrections, audit trail, admin, integrations |
 | **M5 Hardening** | ❌ | 16 (connectors), 17 | Phase 5 | Monitoring, backups, staging and production |
 
-M1 is partly done: Steps 0, 1 and 5 are complete, and 2, 4 and 6 are mostly done. Step 3 (GCP), the shortfall rule, review and PDF export are still to build.
+M1 is partly done: upload, processing, review and PDF export work end to end locally. Step 3 (GCP) and the shortfall rule (Step 11) are still to build, so no finding appears without test data.
 
 For M1, claims can come from hand-labelled synthetic documents, so the demo works before the Gemini step exists.
 
 ## Acceptance tests (from the report, §11, updated)
 
-- **Arithmetic:** ordered=100 and delivered=80 in the same unit gives a shortfall of 20, computed in code.
-- **Grounding:** a unique quote maps to its page and span; a missing or ambiguous quote is flagged.
-- **Authorization:** a user who isn't a member can't reach anything in the case, including signed URLs. A viewer can't export, and an API key can't decide.
-- **Uploads:** wrong type, over 25 MB, over 200 pages, or incomplete uploads are rejected or quarantined.
-- **Idempotency:** a redelivered message creates no duplicates.
-- **Review:** every finding starts `pending`; `reject` and `pending` require a note; every decision records the actor, time, decision, note and any correction.
-- **Case status:** a case moves `awaiting_evidence → in_review → completed` and back as described in Step 0.
-- **Reports:** exports include finding IDs, evidence references, review status and generation time.
-- **Failures:** timeouts are retried within limits and end in a visible failed state.
-- **Security:** signed URLs expire, buckets are private, and no secrets or document text appear in logs.
-- **Region:** every stored resource and backup is in `asia-southeast1`.
+Status as of 2026-10-17: ✅ passes in the test suite · 🟠 partly · ❌ needs a step that isn't built.
+
+- ❌ **Arithmetic:** ordered=100 and delivered=80 in the same unit gives a shortfall of 20, computed in code. (rule engine, Step 11)
+- ❌ **Grounding:** a unique quote maps to its page and span; a missing or ambiguous quote is flagged. (Step 10)
+- ✅ **Authorization:** a user who isn't a member can't reach anything in the case, including signed URLs. A viewer can't export, and an API key can't decide.
+- ✅ **Uploads:** wrong type, over 25 MB, over 200 pages, or incomplete uploads are rejected or quarantined.
+- ✅ **Idempotency:** a redelivered message creates no duplicates.
+- ✅ **Review:** every finding starts `pending`; `reject` and `pending` require a note; every decision records the actor, time, decision, note and any correction.
+- 🟠 **Case status:** a case moves `awaiting_evidence → in_review → completed` and back as described in Step 0. (the transitions work; reconciliation, which moves a case into `in_review`, is Step 11)
+- ✅ **Reports:** exports include finding IDs, evidence references, review status and generation time.
+- ✅ **Failures:** timeouts are retried within limits and end in a visible failed state.
+- 🟠 **Security:** signed URLs expire, buckets are private, and no secrets or document text appear in logs. (expiry and logs tested; private buckets need Step 3)
+- ❌ **Region:** every stored resource and backup is in `asia-southeast1`. (nothing deployed yet, Step 3)
 
 ## Open questions
 
-- Retention periods for evidence, reports, logs and revoked keys.
+- Retention periods for evidence, reports and revoked keys. (Set so far: webhook delivery logs 30 days, notifications 90 days.)
 - Can one API key span several tenants (for a partner serving many clients)? Assumed no.
 - Should `finding.decided` carry the corrected values, or only IDs? Assumed only IDs.
 - Do high-impact findings need a second reviewer? Do rejected findings appear in reports?
-- Should OCR and PDF rendering share one worker image or use two?
+- Should OCR and PDF rendering share one worker image or use two? (One image for now.)
 - How is confidence shown, given that model "confidence" isn't a calibrated probability?
+- Which email service to use, if any? Needed for invitation emails, telling admins about paused webhooks, and an email version of the weekly summary.

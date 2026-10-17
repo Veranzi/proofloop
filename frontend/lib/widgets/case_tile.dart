@@ -44,7 +44,7 @@ class CaseTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Case #${item.id}',
+                    Text('Case #${item.reference}',
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontWeight: FontWeight.w600, fontSize: 13)),

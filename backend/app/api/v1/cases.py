@@ -36,6 +36,7 @@ class CaseOut(BaseModel):
     status: CaseStatus
     priority: Priority
     customer_id: str | None
+    customer_name: str | None
     assigned_to: PersonRef | None
     created_at: datetime
     updated_at: datetime
@@ -80,7 +81,7 @@ class TimelineItem(BaseModel):
     details: dict[str, Any]
 
 
-def _out(case: Case, assignee: User | None) -> CaseOut:
+def _out(case: Case, assignee: User | None, customer_name: str | None = None) -> CaseOut:
     return CaseOut(
         id=case.id,
         reference=case.reference,
@@ -90,11 +91,17 @@ def _out(case: Case, assignee: User | None) -> CaseOut:
         status=CaseStatus(case.status),
         priority=Priority(case.priority),
         customer_id=case.customer_id,
+        customer_name=customer_name,
         assigned_to=PersonRef(uid=assignee.id, name=assignee.name) if assignee else None,
         created_at=case.created_at,
         updated_at=case.updated_at,
         version=case.version,
     )
+
+
+def _customer_name(db: Session, case: Case) -> str | None:
+    customer = db.get(Customer, case.customer_id) if case.customer_id else None
+    return customer.name if customer else None
 
 
 def _check_assignee(db: Session, tenant_id: str, user_id: str) -> User:
@@ -139,8 +146,9 @@ def list_cases(
     assignee = aliased(User)
     query = (
         visible_cases(principal)
-        .add_columns(assignee)
+        .add_columns(assignee, Customer.name)
         .outerjoin(assignee, assignee.id == Case.assigned_to)
+        .outerjoin(Customer, Customer.id == Case.customer_id)
     )
     if status:
         query = query.where(Case.status == status)
@@ -157,7 +165,7 @@ def list_cases(
     )
     rows = db.execute(query).all()
     return Page[CaseOut](
-        items=[_out(case, user) for case, user in rows[:size]],
+        items=[_out(case, user, customer) for case, user, customer in rows[:size]],
         next_cursor=next_cursor_for(rows, size, lambda r: (r[0].created_at, r[0].id)),
     )
 
@@ -191,6 +199,8 @@ def create_case(
     db.flush()
     for user_id in dict.fromkeys(u for u in (principal.user_id, case.assigned_to) if u):
         case_service.add_member(db, case.id, user_id, principal.user_id)
+    if case.assigned_to:
+        case_service.notify_assignee(db, case, principal)
     audit.record(
         db,
         principal,
@@ -202,7 +212,7 @@ def create_case(
     )
     db.commit()
     db.refresh(case)
-    return _out(case, assignee)
+    return _out(case, assignee, _customer_name(db, case))
 
 
 @router.get("/{case_id}", response_model=CaseOut)
@@ -213,7 +223,11 @@ def get_case(
 ) -> CaseOut:
     """5"""
     case = load_case(db, principal, case_id)
-    return _out(case, db.get(User, case.assigned_to) if case.assigned_to else None)
+    return _out(
+        case,
+        db.get(User, case.assigned_to) if case.assigned_to else None,
+        _customer_name(db, case),
+    )
 
 
 @router.patch("/{case_id}", response_model=CaseOut)
@@ -241,6 +255,7 @@ def update_case(
         case.version += 1
         if changed.get("assigned_to"):
             case_service.add_member(db, case.id, changed["assigned_to"], principal.user_id)
+            case_service.notify_assignee(db, case, principal)
         audit.record(
             db,
             principal,
@@ -252,7 +267,11 @@ def update_case(
         )
         db.commit()
         db.refresh(case)
-    return _out(case, db.get(User, case.assigned_to) if case.assigned_to else None)
+    return _out(
+        case,
+        db.get(User, case.assigned_to) if case.assigned_to else None,
+        _customer_name(db, case),
+    )
 
 
 @router.get("/{case_id}/timeline", response_model=Page[TimelineItem])

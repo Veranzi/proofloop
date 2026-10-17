@@ -50,3 +50,6 @@ app.*.map.json
 # Agent skills are installed locally from skills-lock.json
 /.agents/
 /.claude/
+
+# Local build settings (Firebase web config etc.); see README
+dart_defines.local.json

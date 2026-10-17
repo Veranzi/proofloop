@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../../core/formatters.dart';
 import '../../core/integration_models.dart';
-import '../../core/integrations_repository.dart';
+import '../../core/integrations_api.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/status_chip.dart';
 import 'integration_widgets.dart';
@@ -20,7 +21,19 @@ class WebhooksTab extends StatefulWidget {
 }
 
 class _WebhooksTabState extends State<WebhooksTab> {
-  final _repo = IntegrationsRepository.instance;
+  final _api = IntegrationsApi();
+  late Future<List<WebhookEndpoint>> _future = _api.webhooks();
+
+  void _reload() => setState(() { _future = _api.webhooks(); });
+
+  Future<void> _guard(Future<void> Function() call) async {
+    try {
+      await call();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
+  }
 
   Future<void> _add() async {
     final result = await showDialog<(String, String, Set<WebhookEvent>)>(
@@ -29,12 +42,16 @@ class _WebhooksTabState extends State<WebhooksTab> {
     );
     if (result == null || !mounted) return;
     final (url, description, events) = result;
-    final (_, secret) = _repo.createWebhook(
-      url: url,
-      description: description,
-      events: events,
-    );
-    setState(() {});
+    final String secret;
+    try {
+      (_, secret) = await _api.createWebhook(
+          url: url, description: description, events: events);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    _reload();
+    if (!mounted) return;
     await showSecretOnce(
       context,
       title: 'Webhook added',
@@ -45,12 +62,19 @@ class _WebhooksTabState extends State<WebhooksTab> {
     );
   }
 
-  void _test(WebhookEndpoint w) {
-    final d = _repo.sendTestEvent(w.id);
-    setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Test event sent: HTTP ${d.statusCode}')),
-    );
+  Future<void> _test(WebhookEndpoint w) async {
+    try {
+      final d = await _api.sendTestEvent(w.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(d.statusCode == 0
+            ? "Test event failed: the endpoint couldn't be reached"
+            : 'Test event sent: HTTP ${d.statusCode}'),
+      ));
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
   }
 
   Future<void> _delete(WebhookEndpoint w) async {
@@ -60,12 +84,19 @@ class _WebhooksTabState extends State<WebhooksTab> {
       message: '${w.url} will stop receiving events.',
       action: 'Delete',
     );
-    if (ok) setState(() => _repo.deleteWebhook(w.id));
+    if (ok) await _guard(() => _api.deleteWebhook(w.id));
   }
 
   @override
   Widget build(BuildContext context) {
-    final hooks = _repo.webhooks();
+    return AsyncView<List<WebhookEndpoint>>(
+      future: _future,
+      onRetry: _reload,
+      builder: (context, hooks) => _list(hooks),
+    );
+  }
+
+  Widget _list(List<WebhookEndpoint> hooks) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -130,7 +161,7 @@ class _WebhooksTabState extends State<WebhooksTab> {
                       Switch(
                         value: w.active,
                         onChanged: (v) =>
-                            setState(() => _repo.setWebhookActive(w.id, v)),
+                            _guard(() => _api.setWebhookActive(w.id, v)),
                       ),
                       PopupMenuButton<String>(
                         tooltip: 'Webhook actions',
@@ -183,7 +214,7 @@ class _WebhooksTabState extends State<WebhooksTab> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                d.event.wire +
+                                d.event +
                                     (d.attempt > 1
                                         ? ' · attempt ${d.attempt}'
                                         : ''),

@@ -22,9 +22,13 @@ plugins = ["pydantic.mypy"]
 exclude = ["app/db/migrations/"]
 
 [[tool.mypy.overrides]]
-module = ["firebase_admin.*", "google.cloud.*", "google.auth.*"]
+module = ["firebase_admin.*", "google.cloud.*", "google.auth.*", "google.oauth2.*", "openpyxl.*", "docx.*", "pdfplumber.*", "pdfminer.*", "fpdf.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[[tool.mypy.overrides]]
+module = ["app.reports.pdf"]
+disallow_subclassing_any = false  # fpdf2 ships no type hints

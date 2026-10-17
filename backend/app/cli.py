@@ -13,38 +13,49 @@ Remove someone's access everywhere. The user row stays, with its email
 cleared, because the append-only audit trail refers to it:
 
     python -m app.cli remove-user --email someone@acme.com
+
+Set up the separate migration and runtime database roles (run as a database
+admin; passwords come from the environment, never the command line):
+
+    PRUFLO_ADMIN_DATABASE_URL=postgresql+psycopg://postgres:...@host/pruflo \
+    PRUFLO_MIGRATOR_PASSWORD=... PRUFLO_RUNTIME_PASSWORD=... \
+        python -m app.cli db-roles
+
+On Cloud SQL, create both users with gcloud first and add ``--no-create``.
+
+Send a test push to someone's registered browsers, through the real Firebase
+Cloud Messaging (needs credentials for PRUFLO_FIREBASE_PROJECT):
+
+    python -m app.cli test-push --email someone@acme.com
+
+Check the real evidence bucket: region, private access, signed URLs and the
+upload size limit (see app/storage/check.py):
+
+    python -m app.cli check-storage
 """
 
 import argparse
+import os
 
-from sqlalchemy import delete, select
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.db.models import CaseMember, Device, Membership, ProviderSettings, Tenant, User
+from app.db.models import ProviderSettings, Tenant, User
+from app.db.roles import apply_roles
 from app.db.session import get_engine
 from app.enums import Role
 from app.ids import new_id
+from app.services import users
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def _normalise(email: str) -> str:
-    email = email.strip().lower()
-    if "@" not in email or email.startswith("@") or email.endswith("@"):
-        raise ValueError(f"Not an email address: {email!r}")
-    return email
-
-
 def bootstrap(db: Session, tenant_name: str, admin_email: str, admin_name: str) -> Tenant:
-    email = _normalise(admin_email)
+    email = users.normalise_email(admin_email)
     tenant = Tenant(id=new_id("ten"), name=tenant_name.strip())
     db.add(tenant)
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(id=new_id("u"), email=email, name=admin_name.strip())
-        db.add(user)
     db.flush()
-    db.add(Membership(id=new_id("mem"), tenant_id=tenant.id, user_id=user.id, role=Role.ADMIN))
+    users.invite(db, tenant.id, email, Role.ADMIN, admin_name)
     db.add(ProviderSettings(tenant_id=tenant.id, model=DEFAULT_MODEL))
     db.commit()
     return tenant
@@ -52,40 +63,47 @@ def bootstrap(db: Session, tenant_name: str, admin_email: str, admin_name: str) 
 
 def invite(db: Session, tenant_id: str, email: str, role: Role, name: str = "") -> User:
     """Give ``email`` the role in the organisation. They link their account on first sign-in."""
-    if db.get(Tenant, tenant_id) is None:
-        raise ValueError(f"No organisation {tenant_id}")
-    email = _normalise(email)
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(id=new_id("u"), email=email, name=name.strip())
-        db.add(user)
-        db.flush()
-    user.active = True
-    membership = db.scalar(
-        select(Membership).where(Membership.tenant_id == tenant_id, Membership.user_id == user.id)
-    )
-    if membership is None:
-        db.add(Membership(id=new_id("mem"), tenant_id=tenant_id, user_id=user.id, role=role))
-    else:
-        membership.role = role
+    user = users.invite(db, tenant_id, email, role, name)
     db.commit()
     return user
 
 
 def remove_user(db: Session, email: str) -> User:
     """Take away all access. The row is kept (audit events point at it) but anonymised."""
-    user = db.scalar(select(User).where(User.email == _normalise(email)))
+    user = db.scalar(select(User).where(User.email == users.normalise_email(email)))
     if user is None:
         raise ValueError(f"No user with email {email}")
-    db.execute(delete(Membership).where(Membership.user_id == user.id))
-    db.execute(delete(CaseMember).where(CaseMember.user_id == user.id))
-    db.execute(delete(Device).where(Device.user_id == user.id))
-    user.active = False
-    user.firebase_uid = None
-    user.email = f"removed+{user.id}@pruflo.invalid"
-    user.phone = ""
+    users.anonymise(db, user)
     db.commit()
     return user
+
+
+def test_push(db: Session, email: str) -> str:
+    from app.services import push
+
+    user = db.scalar(select(User).where(User.email == users.normalise_email(email)))
+    if user is None:
+        raise ValueError(f"No user with email {email}")
+    tried, dead = push.send_test(db, user.id)
+    if not tried:
+        return f"{email} has no registered devices. Sign in to the web app and allow notifications."
+    return f"Sent to {tried} device(s); {dead} no longer valid and removed."
+
+
+def db_roles(admin_url: str, migrator: str, runtime: str, create: bool) -> None:
+    engine = create_engine(admin_url)
+    try:
+        with engine.begin() as conn:
+            apply_roles(
+                conn,
+                migrator=migrator,
+                runtime=runtime,
+                migrator_password=os.environ.get("PRUFLO_MIGRATOR_PASSWORD"),
+                runtime_password=os.environ.get("PRUFLO_RUNTIME_PASSWORD"),
+                create=create,
+            )
+    finally:
+        engine.dispose()
 
 
 def main() -> None:
@@ -102,13 +120,43 @@ def main() -> None:
     inv.add_argument("--name", default="")
     rem = sub.add_parser("remove-user", help="remove someone's access everywhere")
     rem.add_argument("--email", required=True)
+    tp = sub.add_parser("test-push", help="send a test push to someone's devices")
+    tp.add_argument("--email", required=True)
+    roles = sub.add_parser("db-roles", help="set up the migration and runtime database roles")
+    roles.add_argument("--migrator", default="pruflo_migrator")
+    roles.add_argument("--runtime", default="pruflo_app")
+    roles.add_argument(
+        "--no-create", action="store_true", help="the roles already exist (Cloud SQL)"
+    )
+    sub.add_parser("check-storage", help="check the Cloud Storage bucket and signed URLs")
     args = parser.parse_args()
+
+    if args.command == "check-storage":
+        from app.storage import check
+
+        try:
+            passed = check.run()
+        except ValueError as exc:
+            parser.error(str(exc))
+        raise SystemExit(0 if passed else 1)
+    if args.command == "db-roles":
+        admin_url = os.environ.get("PRUFLO_ADMIN_DATABASE_URL")
+        if not admin_url:
+            parser.error("Set PRUFLO_ADMIN_DATABASE_URL to an admin connection URL.")
+        try:
+            db_roles(admin_url, args.migrator, args.runtime, create=not args.no_create)
+        except ValueError as exc:
+            parser.error(str(exc))
+        print(f"Roles ready: migrations as {args.migrator}, the app as {args.runtime}.")  # noqa: T201
+        return
 
     with Session(get_engine()) as db:
         try:
             if args.command == "bootstrap":
                 tenant_id = bootstrap(db, args.tenant, args.admin_email, args.admin_name).id
                 message = f"Created {tenant_id}; {args.admin_email} is its admin."
+            elif args.command == "test-push":
+                message = test_push(db, args.email)
             elif args.command == "invite":
                 invite(db, args.tenant, args.email, Role(args.role), args.name)
                 message = f"Invited {args.email.strip().lower()} to {args.tenant} as {args.role}."

@@ -1,5 +1,7 @@
-/// REST endpoints of the Cloud Run API (FastAPI), as proposed in the
-/// "Pruflo Flutter UI Guide". Numbers match the guide's contract table.
+import 'config.dart';
+
+/// REST endpoints of the Cloud Run API (FastAPI). Numbers match
+/// Docs/API_Contract.md and Docs/Integrations_API_Contract.md.
 ///
 /// Every call except the signed-URL upload sends:
 /// `Authorization: Bearer {Firebase ID token}` and
@@ -8,15 +10,7 @@ class ApiEndpoints {
   ApiEndpoints._();
 
   /// Set at build time: --dart-define=API_BASE_URL=https://...run.app
-  static const baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
-
-  /// Off by default, so the hosted demo keeps running on mock data until the
-  /// API is deployed. Run locally against the backend with:
-  /// flutter run -d chrome --dart-define=USE_API=true
-  static const useApi = bool.fromEnvironment('USE_API');
+  static const baseUrl = AppConfig.apiBaseUrl;
 
   // Profile and session
   static const me = '/v1/me'; // 1 GET, 21 PATCH
@@ -87,4 +81,15 @@ class ApiEndpoints {
   // Machine-readable export of findings: ?format=json|csv
   static String caseExport(String caseId) =>
       '/v1/cases/$caseId/export'; // 50 GET
+
+  // Notifications, profile photo and customer picker
+  static const notifications = '/v1/me/notifications'; // 51 GET
+  static String notificationRead(String id) =>
+      '/v1/me/notifications/$id/read'; // 52 POST
+  static const notificationsReadAll =
+      '/v1/me/notifications/read-all'; // 53 POST
+  static const avatarUploadUrl = '/v1/me/avatar/upload-url'; // 54 POST
+  static const avatarComplete = '/v1/me/avatar/complete'; // 55 POST
+  static const avatar = '/v1/me/avatar'; // 56 DELETE
+  static const customers = '/v1/customers'; // 57 GET
 }

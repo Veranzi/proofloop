@@ -36,11 +36,44 @@ jobs:
         working-directory: frontend
         run: flutter pub get
 
+      # The app's API address and Firebase config come from GitHub repository
+      # variables (Settings > Secrets and variables > Actions > Variables).
+      # Without them a preview would point at localhost, so the app is still
+      # built (to catch compile errors) but no preview is deployed. The live
+      # deploy (firebase-hosting-merge.yml) refuses to run without them.
+      - name: Check build settings
+        id: settings
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+        run: |
+          missing=""
+          for v in API_BASE_URL FIREBASE_API_KEY FIREBASE_APP_ID FIREBASE_MESSAGING_SENDER_ID; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::No preview deployed. Set these repository variables:$missing (see frontend/README.md)"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$API_BASE_URL" in https://*) ;; *) echo "::error::API_BASE_URL must be an https URL"; exit 1;; esac
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
+
       - name: Build Flutter web
         working-directory: frontend
-        run: flutter build web --release
+        run: >-
+          flutter build web --release
+          --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
+          --dart-define=FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
+          --dart-define=FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
+          --dart-define=FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+          --dart-define=FIREBASE_APP_CHECK_SITE_KEY=${{ vars.FIREBASE_APP_CHECK_SITE_KEY }}
+          --dart-define=FIREBASE_VAPID_KEY=${{ vars.FIREBASE_VAPID_KEY }}
 
       - name: Deploy preview to Firebase Hosting
+        if: steps.settings.outputs.deploy == 'true'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

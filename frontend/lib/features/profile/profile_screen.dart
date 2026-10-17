@@ -1,14 +1,20 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
+import '../../core/api.dart';
 import '../../core/auth_service.dart';
 import '../../core/models.dart';
+import '../../core/push_service.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import '../../widgets/page_header.dart';
+import '../../widgets/status_chip.dart';
+import '../../widgets/user_avatar.dart';
 
-/// Account settings. API: GET/PATCH /v1/me (1, 21); password and email
-/// changes go through Firebase Auth directly.
+/// Account settings. API: GET/PATCH /v1/me (1, 21). Email and role are
+/// managed by an admin; passwords go through Firebase Auth directly.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -74,6 +80,7 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
   late final TextEditingController _email;
   late final TextEditingController _phone;
   late final TextEditingController _job;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -94,17 +101,28 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    AuthService.instance.updateProfile(AppUser(
-      name: _name.text.trim(),
-      email: _user.email,
-      role: _user.role,
-      phone: _phone.text.trim(),
-      jobTitle: _job.text.trim(),
-    ));
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Profile updated')));
+    setState(() => _saving = true);
+    try {
+      final updated = await PrufloApi().updateMe(
+        name: _name.text.trim(),
+        phone: _phone.text.trim(),
+        jobTitle: _job.text.trim(),
+      );
+      AuthService.instance.updateProfile(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Profile updated')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -129,28 +147,7 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: AppColors.primary,
-                  child: Text(_user.initials,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600)),
-                ),
-                const SizedBox(width: 16),
-                Flexible(
-                  child: TextButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.photo_camera_outlined, size: 18),
-                    label: const Text('Change photo',
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                ),
-              ],
-            ),
+            const _PhotoHeader(),
             const SizedBox(height: 24),
             pair(
               LabeledField(
@@ -161,7 +158,7 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
               LabeledField(
                 label: 'Email address',
                 controller: _email,
-                readOnly: true, // changed through Firebase Auth verification
+                readOnly: true, // managed by an admin
               ),
             ),
             const SizedBox(height: 16),
@@ -176,11 +173,214 @@ class _PersonalInfoTabState extends State<_PersonalInfoTab> {
             const SizedBox(height: 24),
             FilledButton(
               style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
-              onPressed: _save,
-              child: const Text('Save Changes'),
+              onPressed: _saving ? null : _save,
+              child: Text(_saving ? 'Saving…' : 'Save Changes'),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Photo, name and role, with "Change photo" and "Remove photo"
+/// (endpoints 54–56).
+class _PhotoHeader extends StatefulWidget {
+  const _PhotoHeader();
+
+  @override
+  State<_PhotoHeader> createState() => _PhotoHeaderState();
+}
+
+class _PhotoHeaderState extends State<_PhotoHeader> {
+  static const _maxBytes = 5 * 1024 * 1024;
+  bool _busy = false;
+
+  Future<void> _change() async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['png', 'jpg', 'jpeg'],
+    );
+    if (picked.isEmpty || !mounted) return;
+    final file = picked.first;
+    final size = await file.length() ?? 0;
+    if (!mounted) return;
+    if (size > _maxBytes) {
+      showError(context, 'Photos must be 5 MB or smaller.');
+      return;
+    }
+    final ext = file.name.split('.').last.toLowerCase();
+    setState(() => _busy = true);
+    try {
+      final updated = await PrufloApi().uploadAvatar(
+          await file.readAsBytes(), ext == 'png' ? 'image/png' : 'image/jpeg');
+      AuthService.instance.updateProfile(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Photo updated')));
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _remove() async {
+    setState(() => _busy = true);
+    try {
+      await PrufloApi().removeAvatar();
+      await AuthService.instance.refresh();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AuthService.instance,
+      builder: (context, _) {
+        final user = AuthService.instance.user;
+        if (user == null) return const SizedBox.shrink();
+        return Row(
+          children: [
+            UserAvatar(
+              initials: user.initials,
+              url: user.avatarUrl,
+              radius: 32,
+              background: AppColors.primary,
+              foreground: Colors.white,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(user.displayName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text('Role: ${roleLabel(user.role)}',
+                      style: const TextStyle(
+                          fontSize: 13, color: AppColors.textSecondary)),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _busy ? null : _change,
+                        icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                        label: Text(_busy ? 'Saving…' : 'Change photo'),
+                      ),
+                      if (user.avatarUrl != null)
+                        TextButton(
+                          onPressed: _busy ? null : _remove,
+                          child: const Text('Remove photo'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Which notifications to receive, saved with PATCH /v1/me (21).
+class _NotificationsTab extends StatefulWidget {
+  const _NotificationsTab();
+
+  @override
+  State<_NotificationsTab> createState() => _NotificationsTabState();
+}
+
+class _NotificationsTabState extends State<_NotificationsTab> {
+  static const _labels = [
+    ('evidence_processed', 'Evidence processing finished or failed'),
+    ('case_assigned', 'Case assigned to me'),
+    ('case_in_review', 'Case ready for my review'),
+    ('report_ready', 'Report ready to download'),
+    ('weekly_summary', 'Weekly case summary (Mondays, in the app)'),
+  ];
+
+  // Shown until the server says otherwise (Docs/API_Contract.md defaults).
+  static const _defaults = {
+    'evidence_processed': true,
+    'case_assigned': true,
+    'case_in_review': true,
+    'report_ready': true,
+    'weekly_summary': false,
+    'push': true,
+  };
+
+  final _saving = <String>{};
+
+  bool _value(String key) =>
+      AuthService.instance.user?.notificationPreferences[key] ??
+      _defaults[key] ??
+      false;
+
+  Future<void> _set(String key, bool value) async {
+    final auth = AuthService.instance;
+    final before = auth.user;
+    if (before == null) return;
+    // Show the change at once; undo it if the server refuses.
+    auth.updateProfile(before.copyWith(notificationPreferences: {
+      ...before.notificationPreferences,
+      key: value,
+    }));
+    setState(() => _saving.add(key));
+    try {
+      final updated =
+          await PrufloApi().updateMe(notificationPreferences: {key: value});
+      auth.updateProfile(updated);
+    } catch (e) {
+      auth.updateProfile(before);
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _saving.remove(key));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AuthService.instance,
+      builder: (context, _) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              'Notifications appear under the bell at the top of the page.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+          ),
+          for (final (key, label) in _labels)
+            SwitchListTile(
+              value: _value(key),
+              title: Text(label),
+              onChanged: _saving.contains(key) ? null : (v) => _set(key, v),
+            ),
+          const Divider(height: 24),
+          SwitchListTile(
+            value: _value('push'),
+            title: const Text('Also send to my devices (push)'),
+            subtitle: Text(PushService.instance.enabled
+                ? 'Your browser will ask for permission the first time.'
+                : "Push isn't set up for this build; you'll still see them "
+                    'under the bell.'),
+            onChanged:
+                _saving.contains('push') ? null : (v) => _set('push', v),
+          ),
+        ],
       ),
     );
   }
@@ -191,27 +391,45 @@ class _SecurityTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final email = AuthService.instance.user?.email ?? '';
+    final auth = AuthService.instance;
+    final email = auth.user?.email ?? '';
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.lock_reset_outlined),
-          title: const Text('Change password'),
-          subtitle: Text('We will email a reset link to $email'),
-          trailing: OutlinedButton(
-            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
-            onPressed: () async {
-              await AuthService.instance.sendPasswordReset(email);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Password reset email sent')));
-              }
-            },
-            child: const Text('Send link'),
+        if (auth.usesFirebase)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.lock_reset_outlined),
+            title: const Text('Change password'),
+            subtitle: Text('We will email a reset link to $email'),
+            trailing: OutlinedButton(
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+              onPressed: () async {
+                try {
+                  await auth.sendPasswordReset(email);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Password reset email sent')));
+                  }
+                } on AuthException catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text(e.message)));
+                  }
+                }
+              },
+              child: const Text('Send link'),
+            ),
+          )
+        else
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.info_outline),
+            title: Text('Development sign-in'),
+            subtitle: Text(
+                'This build signs in without passwords. Password management '
+                'is available when Firebase Auth is configured.'),
           ),
-        ),
         // Phones have no sidebar, so admins reach these pages from here.
         if (AuthService.instance.isAdmin) ...[
           const Divider(height: 32),
@@ -238,43 +456,11 @@ class _SecurityTab extends StatelessWidget {
           leading: const Icon(Icons.logout, color: AppColors.danger),
           title: const Text('Sign out'),
           subtitle: const Text('Sign out of Pruflo on this device'),
-          onTap: () {
-            AuthService.instance.signOut();
-            context.go('/login');
+          onTap: () async {
+            await AuthService.instance.signOut();
+            if (context.mounted) context.go('/login');
           },
         ),
-      ],
-    );
-  }
-}
-
-class _NotificationsTab extends StatefulWidget {
-  const _NotificationsTab();
-
-  @override
-  State<_NotificationsTab> createState() => _NotificationsTabState();
-}
-
-class _NotificationsTabState extends State<_NotificationsTab> {
-  // Delivered through FCM; preferences saved with PATCH /v1/me.
-  final _prefs = <String, bool>{
-    'Evidence processing finished': true,
-    'Case assigned to me for review': true,
-    'Report ready to download': true,
-    'Weekly case summary email': false,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        for (final e in _prefs.entries)
-          SwitchListTile(
-            value: e.value,
-            title: Text(e.key),
-            onChanged: (v) => setState(() => _prefs[e.key] = v),
-          ),
       ],
     );
   }

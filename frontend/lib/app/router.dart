@@ -30,17 +30,28 @@ final appRouter = GoRouter(
   initialLocation: '/',
   refreshListenable: AuthService.instance,
   redirect: (context, state) {
-    final signedIn = AuthService.instance.isSignedIn;
+    final auth = AuthService.instance;
+    final signedIn = auth.isSignedIn;
     final path = state.matchedLocation;
     final isPublic = _publicRoutes.contains(path);
 
+    // On launch or reload the saved session is still being checked: wait on
+    // the splash, then come back to the page that was open.
+    if (!auth.ready && !isPublic) {
+      return Uri(path: '/', queryParameters: {'from': state.uri.toString()})
+          .toString();
+    }
     if (!signedIn && !isPublic) return '/login';
     // Signed-in users skip the auth screens (the splash handles itself).
     if (signedIn && isPublic && path != '/') return '/dashboard';
     return null;
   },
   routes: [
-    GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
+    GoRoute(
+      path: '/',
+      builder: (context, state) =>
+          SplashScreen(from: state.uri.queryParameters['from']),
+    ),
     GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
     GoRoute(path: '/signup', builder: (context, state) => const SignUpScreen()),
     GoRoute(
@@ -67,6 +78,7 @@ final appRouter = GoRouter(
           path: '/cases',
           builder: (context, state) => CasesScreen(
             openNewCase: state.uri.queryParameters['new'] == '1',
+            initialQuery: state.uri.queryParameters['q'],
           ),
         ),
         GoRoute(

@@ -114,6 +114,16 @@ class ConnectorKind(StrEnum):
     SAP = "sap"
 
 
+class EvidenceSource(StrEnum):
+    """Where an evidence file came from. Every source goes through the same checks."""
+
+    UPLOAD = "upload"
+    EMAIL_INBOX = "email_inbox"
+    GOOGLE_DRIVE = "google_drive"
+    SHAREPOINT = "sharepoint"
+    ODOO = "odoo"
+
+
 class ConnectorStatus(StrEnum):
     NOT_CONNECTED = "not_connected"
     CONNECTED = "connected"
@@ -133,3 +143,11 @@ class AiProviderName(StrEnum):
     VERTEX_CLAUDE = "vertex_claude"
     AZURE_OPENAI = "azure_openai"
     SELF_HOSTED = "self_hosted"
+
+
+class NotificationKind(StrEnum):
+    EVIDENCE_PROCESSED = "evidence_processed"
+    CASE_ASSIGNED = "case_assigned"
+    CASE_IN_REVIEW = "case_in_review"
+    REPORT_READY = "report_ready"
+    WEEKLY_SUMMARY = "weekly_summary"

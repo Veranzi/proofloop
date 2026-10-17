@@ -13,7 +13,6 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
-    ARRAY,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -26,7 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, Timestamped, enum_check
@@ -35,9 +34,11 @@ from app.enums import (
     CaseStatus,
     ConnectorKind,
     ConnectorStatus,
+    EvidenceSource,
     EvidenceStatus,
     GroundingStatus,
     JobStatus,
+    NotificationKind,
     OcrProviderName,
     Priority,
     ReportFormat,
@@ -79,6 +80,9 @@ class User(Timestamped, Base):
     phone: Mapped[str] = mapped_column(String(40), server_default="")
     job_title: Mapped[str] = mapped_column(String(120), server_default="")
     active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    avatar_key: Mapped[str | None] = mapped_column(String(300))  # re-encoded JPEG in storage
+    # Per-kind on/off plus "push"; missing keys use the defaults in services/notifications.py.
+    notification_prefs: Mapped[dict[str, bool]] = mapped_column(JSONB, server_default="{}")
 
 
 class Membership(Timestamped, Base):
@@ -158,8 +162,18 @@ class EvidenceFile(Timestamped, Base):
     __tablename__ = "evidence_files"
     __table_args__ = (
         enum_check("status", EvidenceStatus),
+        enum_check("source", EvidenceSource),
         CheckConstraint("byte_size >= 0", name="byte_size_non_negative"),
         Index("ix_evidence_files_case_created", "case_id", "created_at"),
+        # The same external file is imported once.
+        Index(
+            "uq_evidence_files_source_ref",
+            "tenant_id",
+            "source",
+            "source_ref",
+            unique=True,
+            postgresql_where="source_ref IS NOT NULL",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
@@ -178,6 +192,9 @@ class EvidenceFile(Timestamped, Base):
     parser_version: Mapped[str | None] = mapped_column(String(80))
     uploaded_by: Mapped[str | None] = mapped_column(_fk("users.id"))
     uploaded_at: Mapped[datetime | None] = mapped_column(TZ)
+    source: Mapped[str] = mapped_column(String(20), server_default=EvidenceSource.UPLOAD)
+    # The source's own ID for the file (message, Drive file, Odoo attachment).
+    source_ref: Mapped[str | None] = mapped_column(String(300))
     updated_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now(), onupdate=func.now())
 
 
@@ -354,6 +371,8 @@ class Report(Timestamped, Base):
     title: Mapped[str] = mapped_column(String(200), server_default="")
     object_key: Mapped[str | None] = mapped_column(String(300))
     template_version: Mapped[str] = mapped_column(String(40))
+    # What was asked for, e.g. {"type": "detailed", "sections": ["evidence", "findings"]}.
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
     sha256: Mapped[str | None] = mapped_column(String(64))
     requested_by: Mapped[str | None] = mapped_column(_fk("users.id"))
     completed_at: Mapped[datetime | None] = mapped_column(TZ)
@@ -419,7 +438,13 @@ class Connector(Base):
     secret_ref: Mapped[str | None] = mapped_column(
         String(300)
     )  # credentials stay in Secret Manager
+    # Credentials and refresh tokens, encrypted (app.services.secret_box). Never returned.
+    secret: Mapped[str | None] = mapped_column(Text)
+    # Importer bookmarks: folder IDs, the last Odoo attachment, folder -> case.
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+    connected_by: Mapped[str | None] = mapped_column(_fk("users.id"))
     connected_at: Mapped[datetime | None] = mapped_column(TZ)
+    last_synced_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class ProviderSettings(Base):
@@ -474,3 +499,24 @@ class AuditEvent(Timestamped, Base):
     case_id: Mapped[str | None] = mapped_column(_fk("cases.id"))
     request_id: Mapped[str] = mapped_column(String(64))
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
+
+
+class Notification(Timestamped, Base):
+    """In-app notification for one person. Kept 90 days."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        enum_check("kind", NotificationKind),
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+        Index("ix_notifications_unread", "user_id", postgresql_where="read_at IS NULL"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(_fk("tenants.id"))
+    user_id: Mapped[str] = mapped_column(_fk("users.id", "CASCADE"))
+    kind: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(String(500), server_default="")
+    case_id: Mapped[str | None] = mapped_column(_fk("cases.id", "CASCADE"))
+    link: Mapped[str] = mapped_column(String(300), server_default="")
+    read_at: Mapped[datetime | None] = mapped_column(TZ)

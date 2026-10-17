@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../core/integration_models.dart';
-import '../../core/integrations_repository.dart';
+import '../../core/integrations_api.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/form_fields.dart';
 import 'integration_widgets.dart';
 
@@ -18,7 +19,10 @@ class RulesTab extends StatefulWidget {
 }
 
 class _RulesTabState extends State<RulesTab> {
-  final _repo = IntegrationsRepository.instance;
+  final _api = IntegrationsApi();
+  late Future<List<ReconciliationRule>> _future = _api.rules();
+
+  void _reload() => setState(() { _future = _api.rules(); });
 
   Future<void> _edit(ReconciliationRule rule) async {
     final params = await showDialog<List<RuleParam>>(
@@ -26,84 +30,103 @@ class _RulesTabState extends State<RulesTab> {
       builder: (_) => _EditRuleDialog(rule: rule),
     );
     if (params == null || !mounted) return;
-    final unchanged = [
+    final changed = {
       for (var i = 0; i < params.length; i++)
-        params[i].value == rule.params[i].value,
-    ].every((same) => same);
-    if (unchanged) return;
-    final updated = rule.copyWith(params: params);
-    setState(() => _repo.updateRule(updated));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+        if (params[i].value != rule.params[i].value)
+          params[i].key: params[i].value,
+    };
+    if (changed.isEmpty) return;
+    try {
+      final updated = await _api.updateRule(rule.id, params: changed);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('${rule.name} saved as version ${updated.version}'),
-      ),
-    );
+      ));
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
+  }
+
+  Future<void> _toggle(ReconciliationRule rule, bool enabled) async {
+    try {
+      await _api.updateRule(rule.id, enabled: enabled);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    _reload();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const TabIntro(title: 'Reconciliation rules'),
-        const InfoBanner(
-          'Rules are calculated in code, never by AI. Changing a parameter '
-          'creates a new version; findings already made keep the version '
-          'that produced them, so they can be reproduced.',
-        ),
-        const SizedBox(height: 12),
-        for (final r in _repo.rules())
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.border)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${r.name}  ·  v${r.version}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        r.description,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TagList([
-                        r.template,
-                        for (final p in r.params)
-                          '${p.key} = ${p.value}${p.suffix.isEmpty ? '' : ' ${p.suffix}'}',
-                      ]),
-                    ],
-                  ),
-                ),
-                if (r.params.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Edit parameters',
-                    icon: const Icon(Icons.tune, size: 18),
-                    onPressed: () => _edit(r),
-                  ),
-                Switch(
-                  value: r.enabled,
-                  onChanged: (v) =>
-                      setState(() => _repo.updateRule(r.copyWith(enabled: v))),
-                ),
-              ],
-            ),
+    return AsyncView<List<ReconciliationRule>>(
+      future: _future,
+      onRetry: _reload,
+      builder: (context, rules) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const TabIntro(title: 'Reconciliation rules'),
+          const InfoBanner(
+            'Rules are calculated in code, never by AI. Changing a parameter '
+            'creates a new version; findings already made keep the version '
+            'that produced them, so they can be reproduced.',
           ),
-      ],
+          const SizedBox(height: 12),
+          if (rules.isEmpty)
+            const EmptyPanel(title: 'No rules are available yet.'),
+          for (final r in rules)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.border)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${r.name}  ·  v${r.version}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          r.description,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TagList([
+                          r.template,
+                          for (final p in r.params)
+                            '${p.key} = ${p.value}${p.suffix.isEmpty ? '' : ' ${p.suffix}'}',
+                        ]),
+                      ],
+                    ),
+                  ),
+                  if (r.params.isNotEmpty)
+                    IconButton(
+                      tooltip: 'Edit parameters',
+                      icon: const Icon(Icons.tune, size: 18),
+                      onPressed: () => _edit(r),
+                    ),
+                  Switch(
+                    value: r.enabled,
+                    onChanged: (v) => _toggle(r, v),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -164,8 +187,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 const SizedBox(height: 12),
               ],
               Text(
-                'Saving creates version ${widget.rule.version + 1}. It applies '
-                'to evidence processed from now on.',
+                'Saving creates a new version. It applies to evidence '
+                'processed from now on.',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textSecondary,

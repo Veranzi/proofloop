@@ -1,69 +1,136 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/formatters.dart';
-import '../../core/mock_repository.dart';
+import '../../core/api.dart';
+import '../../core/auth_service.dart';
 import '../../core/models.dart';
+import '../../widgets/async_view.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/status_chip.dart';
 import 'new_case_dialog.dart';
 
 /// Case management: search, filter by status, open or create a case.
+/// Search and filters run on the server (GET /v1/cases?q=&status=).
 class CasesScreen extends StatefulWidget {
-  const CasesScreen({super.key, this.openNewCase = false});
+  const CasesScreen({super.key, this.openNewCase = false, this.initialQuery});
 
   /// Opens the "New Case" dialog on arrival (dashboard quick action).
   final bool openNewCase;
+
+  /// From the top bar's search box.
+  final String? initialQuery;
 
   @override
   State<CasesScreen> createState() => _CasesScreenState();
 }
 
 class _CasesScreenState extends State<CasesScreen> {
-  String _query = '';
+  final _api = PrufloApi();
+  late final _search = TextEditingController(text: widget.initialQuery ?? '');
   CaseStatus? _status;
+  Timer? _debounce;
+
+  final _cases = <CaseItem>[];
+  String? _nextCursor;
+  bool _loading = true;
+  bool _loadingMore = false;
+  Object? _error;
+  int _generation = 0; // ignores responses to superseded searches
+
+  bool get _canEdit => AuthService.instance.user?.role.canEditCases ?? false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.openNewCase) {
+    _load();
+    if (widget.openNewCase && _canEdit) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _newCase());
     }
+  }
+
+  @override
+  void didUpdateWidget(CasesScreen old) {
+    super.didUpdateWidget(old);
+    if (widget.initialQuery != old.initialQuery) {
+      _search.text = widget.initialQuery ?? '';
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool more = false}) async {
+    final generation = more ? _generation : ++_generation;
+    setState(() {
+      if (more) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _error = null;
+      }
+    });
+    try {
+      final page = await _api.cases(
+        status: _status,
+        query: _search.text,
+        cursor: more ? _nextCursor : null,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        if (!more) _cases.clear();
+        _cases.addAll(page.items);
+        _nextCursor = page.nextCursor;
+      });
+    } catch (e) {
+      if (!mounted || generation != _generation) return;
+      if (more) {
+        showError(context, e);
+      } else {
+        setState(() => _error = e);
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _loading = _loadingMore = false);
+      }
+    }
+  }
+
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), _load);
   }
 
   Future<void> _newCase() async {
     final created = await showNewCaseDialog(context);
     if (created == null || !mounted) return;
-    setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Case #${created.id} created')),
+      SnackBar(content: Text('Case #${created.reference} created')),
     );
-  }
-
-  List<CaseItem> get _filtered {
-    final q = _query.toLowerCase();
-    return MockRepository.instance.cases().where((c) {
-      final matchesQuery = q.isEmpty ||
-          c.id.toLowerCase().contains(q) ||
-          c.title.toLowerCase().contains(q);
-      final matchesStatus = _status == null || c.status == _status;
-      return matchesQuery && matchesStatus;
-    }).toList();
+    _load();
   }
 
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
-    final cases = _filtered;
+    final filtering = _search.text.trim().isNotEmpty || _status != null;
 
     final filters = Row(
       children: [
         Expanded(
           child: TextField(
-            onChanged: (v) => setState(() => _query = v),
+            controller: _search,
+            onChanged: _onSearchChanged,
             decoration: const InputDecoration(
-              hintText: 'Search cases...',
+              hintText: 'Search by title or reference...',
               prefixIcon: Icon(Icons.search, size: 18),
             ),
           ),
@@ -79,11 +146,53 @@ class _CasesScreenState extends State<CasesScreen> {
               for (final s in CaseStatus.values)
                 DropdownMenuItem(value: s, child: Text(statusLabel(s))),
             ],
-            onChanged: (v) => setState(() => _status = v),
+            onChanged: (v) {
+              setState(() => _status = v);
+              _load();
+            },
           ),
         ),
       ],
     );
+
+    Widget body;
+    if (_error != null) {
+      body = ErrorPanel(message: '$_error', onRetry: _load);
+    } else if (_loading) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
+      );
+    } else if (_cases.isEmpty) {
+      body = filtering
+          ? const EmptyPanel(
+              icon: Icons.search_off,
+              title: 'No cases match your search.')
+          : EmptyPanel(
+              icon: Icons.folder_open_outlined,
+              title: 'No cases yet',
+              message: _canEdit
+                  ? 'Create your first case to start collecting evidence.'
+                  : 'Cases you are added to will appear here.',
+            );
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (wide) _CasesTable(_cases) else for (final c in _cases) _CaseCard(c),
+          if (_nextCursor != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Center(
+                child: OutlinedButton(
+                  onPressed: _loadingMore ? null : () => _load(more: true),
+                  child: Text(_loadingMore ? 'Loading…' : 'Load more'),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -93,32 +202,20 @@ class _CasesScreenState extends State<CasesScreen> {
           PageHeader(
             title: 'Cases',
             subtitle: 'Manage and track all your cases',
-            action: FilledButton.icon(
-              style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
-              onPressed: _newCase,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('New Case'),
-            ),
+            action: _canEdit
+                ? FilledButton.icon(
+                    style:
+                        FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+                    onPressed: _newCase,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('New Case'),
+                  )
+                : null,
           ),
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                filters,
-                const SizedBox(height: 16),
-                if (cases.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 40),
-                    child: Center(
-                      child: Text('No cases match your search.',
-                          style: TextStyle(color: AppColors.textSecondary)),
-                    ),
-                  )
-                else if (wide)
-                  _CasesTable(cases)
-                else
-                  for (final c in cases) _CaseCard(c),
-              ],
+              children: [filters, const SizedBox(height: 16), body],
             ),
           ),
         ],
@@ -147,7 +244,7 @@ class _CasesTable extends StatelessWidget {
           color: AppColors.background,
           child: Row(
             children: [
-              cell(const Text('ID', style: header), 2),
+              cell(const Text('Reference', style: header), 2),
               cell(const Text('Title', style: header), 4),
               cell(const Text('Status', style: header), 3),
               cell(const Text('Priority', style: header), 2),
@@ -167,7 +264,7 @@ class _CasesTable extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  cell(Text(c.id, style: const TextStyle(fontSize: 13)), 2),
+                  cell(Text(c.reference, style: const TextStyle(fontSize: 13)), 2),
                   cell(
                       Text(c.title,
                           style: const TextStyle(
@@ -250,7 +347,7 @@ class _CaseCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text('Case #${item.id}',
+                    Text('Case #${item.reference}',
                         style: const TextStyle(
                             fontSize: 12, color: AppColors.textSecondary)),
                     const Spacer(),
